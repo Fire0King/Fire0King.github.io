@@ -12,35 +12,95 @@
   bottom: -0.1vw;
   animation: move-1 5s infinite;
 }
-@keyframes move-1 {
-  50% {
-    transform: translateY(35px);
-  }
-}
 .waves img:nth-child(2) {
   opacity: 0.7;
   bottom: 0.5vw;
   animation: move-2 4s infinite;
-}
-@keyframes move-2 {
-  50% {
-    transform: translateY(25px);
-  }
 }
 .waves img:nth-child(3) {
   bottom: 0.3vw;
   opacity: 0.6;
   animation: move-3 3.5s infinite;
 }
+.waves img:nth-child(4) {
+  bottom: 0.1vw;
+  opacity: 0.5;
+  animation: move-4 3s infinite;
+}
+@-moz-keyframes move-1 {
+  50% {
+    transform: translateY(35px);
+  }
+}
+@-webkit-keyframes move-1 {
+  50% {
+    transform: translateY(35px);
+  }
+}
+@-o-keyframes move-1 {
+  50% {
+    transform: translateY(35px);
+  }
+}
+@keyframes move-1 {
+  50% {
+    transform: translateY(35px);
+  }
+}
+@-moz-keyframes move-2 {
+  50% {
+    transform: translateY(25px);
+  }
+}
+@-webkit-keyframes move-2 {
+  50% {
+    transform: translateY(25px);
+  }
+}
+@-o-keyframes move-2 {
+  50% {
+    transform: translateY(25px);
+  }
+}
+@keyframes move-2 {
+  50% {
+    transform: translateY(25px);
+  }
+}
+@-moz-keyframes move-3 {
+  50% {
+    transform: translateY(20px);
+  }
+}
+@-webkit-keyframes move-3 {
+  50% {
+    transform: translateY(20px);
+  }
+}
+@-o-keyframes move-3 {
+  50% {
+    transform: translateY(20px);
+  }
+}
 @keyframes move-3 {
   50% {
     transform: translateY(20px);
   }
 }
-.waves img:nth-child(4) {
-  bottom: 0.1vw;
-  opacity: 0.5;
-  animation: move-4 3s infinite;
+@-moz-keyframes move-4 {
+  50% {
+    transform: translateY(20px);
+  }
+}
+@-webkit-keyframes move-4 {
+  50% {
+    transform: translateY(20px);
+  }
+}
+@-o-keyframes move-4 {
+  50% {
+    transform: translateY(20px);
+  }
 }
 @keyframes move-4 {
   50% {
