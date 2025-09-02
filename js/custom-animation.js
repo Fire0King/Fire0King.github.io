@@ -1,3 +1,4 @@
+//header动画中video组件
 var downwave = document.getElementById('downout');
 
 // 添加动画结束事件监听器
