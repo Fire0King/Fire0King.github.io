@@ -86,8 +86,8 @@ export type LiveReportHeroConfig = {
 	/** 帘子下扫的时长（秒），参考仓库为 3 */
 	curtainDurationSeconds: number;
 	/**
-	 * 帘子退场后，白底 + 文字停留的秒数；
-	 * 之后背景动画（视频）入场并循环，同时底部中间出现下拉按钮
+	 * 小字（数据更新信息）完全出现后，再停留多少秒开始淡出（默认 0.5）。
+	 * 之后文字淡出、背景动画入场并循环，同时底部中间出现下拉按钮
 	 */
 	holdSeconds: number;
 };

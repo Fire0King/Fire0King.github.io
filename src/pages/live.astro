@@ -284,14 +284,21 @@ const heroEnabled = liveReportConfig.hero.enable;
 					this.style.visibility = "visible";
 					if (reduced) return;
 					this.ticking = false;
-					/** 单向：一旦滑过首屏就不再回到 hero（再次上滑只留默认壁纸） */
+					/** 单向：滑过首屏后不再回到 hero；同时锁住上滑，不让人滚回开场区域 */
 					this.fadedOut = false;
 					this.onScroll = () => {
-						if (this.fadedOut || this.ticking) return;
+						if (this.ticking) return;
 						this.ticking = true;
 						requestAnimationFrame(() => {
 							this.ticking = false;
 							const vh = window.innerHeight || 1;
+
+							// 已经滑过首屏：把上滑限制在数据区顶部，不允许回到 hero
+							if (this.fadedOut) {
+								if (window.scrollY < vh) window.scrollTo({ top: vh });
+								return;
+							}
+
 							// 首屏 55% 处基本淡完，之后不再干扰数据区
 							const ratio = Math.min(
 								1,
@@ -301,7 +308,6 @@ const heroEnabled = liveReportConfig.hero.enable;
 							if (ratio >= 1) {
 								this.fadedOut = true;
 								this.style.visibility = "hidden";
-								window.removeEventListener("scroll", this.onScroll);
 								for (const video of this.videos) video.pause();
 							} else {
 								this.style.visibility = "visible";

@@ -26,6 +26,12 @@ function clean(value: string | undefined): string | undefined {
 	return trimmed === "" ? undefined : trimmed;
 }
 
+/** 停留秒数：允许 0，非法值回落到 0.5 */
+function normalizeHoldSeconds(value: unknown): number {
+	const parsed = Number(value);
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0.5;
+}
+
 /** 直播数据页面配置（已填充默认值） */
 export const liveReportConfig: LiveReportConfig = {
 	// 留空则使用 i18n 里的默认标题/副标题（推荐留空，便于多语言站点）
@@ -71,7 +77,7 @@ export const liveReportConfig: LiveReportConfig = {
 			: [],
 		curtainDelaySeconds: Number(raw.hero?.curtainDelaySeconds) || 1,
 		curtainDurationSeconds: Number(raw.hero?.curtainDurationSeconds) || 3,
-		holdSeconds: Number(raw.hero?.holdSeconds) || 3,
+		holdSeconds: normalizeHoldSeconds(raw.hero?.holdSeconds),
 	},
 	manualRecords: Array.isArray(raw.manualRecords) ? raw.manualRecords : [],
 };

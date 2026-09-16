@@ -80,17 +80,23 @@ const waveColor =
 	hero.waveColor.trim() === "theme" ? "var(--primary)" : hero.waveColor;
 /** 帘子结束的时刻（延迟 + 时长） */
 const curtainEnd = hero.curtainDelaySeconds + hero.curtainDurationSeconds;
-/** 背景动画入场时刻 = 帘子结束 + 白底停留时间 */
-const videoInDelay = curtainEnd + hero.holdSeconds;
-/** 文字淡出：比动画入场早 1s 开始、0.7s 淡完，即动画入场时文字已消失 */
-const textOutDelay = Math.max(0, videoInDelay - 1);
-/** 小字（数据更新信息）：在帘子完全落下前 0.5s 就开始出现 */
+/** 小字淡入时长；与下面 CSS 里的 var(--meta-in-duration) 同源 */
+const META_IN_DURATION = 0.8;
+/** 文字淡出时长；与下面 CSS 里的 var(--text-out-duration) 同源 */
+const TEXT_OUT_DURATION = 0.7;
+/** 动画入场比文字淡完再晚一点，避免两段动画黏在一起 */
+const VIDEO_IN_GAP = 0.3;
+/** 小字：在帘子完全落下前 0.5s 开始出现 */
 const metaInDelay = Math.max(0, curtainEnd - 0.5);
+/** 文字淡出：小字完全出现后，再停留 hero.holdSeconds 秒开始淡出 */
+const textOutDelay = metaInDelay + META_IN_DURATION + hero.holdSeconds;
+/** 背景动画入场：文字淡完之后 */
+const videoInDelay = textOutDelay + TEXT_OUT_DURATION + VIDEO_IN_GAP;
 /** 预计算：避免在模板的 if 条件里直接用大于号（容易踩到 Astro 解析坑） */
 const hasIntroLines = hero.introLines.length > 0;
 const hasSmallLine = Boolean(smallLine?.trim());
 const rootClass = hasVideo ? "live-hero" : "live-hero no-video";
-const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDelaySeconds}s; --curtain-duration: ${hero.curtainDurationSeconds}s; --curtain-end: ${curtainEnd}s; --meta-in-delay: ${metaInDelay}s; --video-in-delay: ${videoInDelay}s; --text-out-delay: ${textOutDelay}s;`;
+const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDelaySeconds}s; --curtain-duration: ${hero.curtainDurationSeconds}s; --curtain-end: ${curtainEnd}s; --meta-in-delay: ${metaInDelay}s; --meta-in-duration: ${META_IN_DURATION}s; --text-out-delay: ${textOutDelay}s; --text-out-duration: ${TEXT_OUT_DURATION}s; --video-in-delay: ${videoInDelay}s;`;
 ---
 
 <live-hero-fade class={rootClass} data-hero style={rootStyle}>
@@ -325,8 +331,9 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 		text-align: center;
 		color: #0b1020;
 		transform: translate(-50%, -50%);
-		/* 动画入场之前先淡出消失（白底阶段展示几秒 → 淡出 → 动画入场） */
-		animation: live-hero-text-out 0.7s ease-in var(--text-out-delay, 6s) forwards;
+		/* 小字完全出现后再停留一小会儿就淡出（时长由 --text-out-duration 控制） */
+		animation: live-hero-text-out var(--text-out-duration, 0.7s) ease-in
+			var(--text-out-delay, 4.8s) forwards;
 	}
 
 	@keyframes live-hero-text-out {
@@ -360,7 +367,8 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 		font-size: 0.8rem;
 		line-height: 1.7;
 		opacity: 0;
-		animation: live-hero-meta-in 0.8s ease-out var(--meta-in-delay, 3.5s) forwards;
+		animation: live-hero-meta-in var(--meta-in-duration, 0.8s) ease-out
+			var(--meta-in-delay, 3.5s) forwards;
 	}
 
 	@keyframes live-hero-meta-in {
