@@ -44,6 +44,8 @@ export type LiveReportCollectorConfig = {
 
 /** 手动补录的直播记录，用于补上开播机器人上线之前的历史场次 */
 export type LiveReportManualRecord = {
+	/** JSON 里不能写注释，用这个字段写备注（不参与逻辑） */
+	_note?: string;
 	/** 平台 */
 	platform: LivePlatformId;
 	/** 当时的直播标题 */
@@ -60,6 +62,8 @@ export type LiveReportManualRecord = {
 
 /** 直播报表配置 */
 export type LiveReportConfig = {
+	/** JSON 里不能写注释，用这个字段写说明（不参与逻辑） */
+	_readme?: string;
 	/** 页面标题 */
 	title?: string;
 	/** 页面副标题/描述 */

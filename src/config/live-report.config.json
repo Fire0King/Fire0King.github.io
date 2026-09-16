@@ -21,5 +21,38 @@
 		"titleUpdateIntervalMinutes": 30,
 		"retentionDays": 0
 	},
-	"manualRecords": []
+	"manualRecords": [
+		{
+			"_note": "演示用：只有 B站 开播的一天",
+			"platform": "bilibili",
+			"title": "【歌回】点歌台营业中",
+			"start": "2026-09-09T20:00:00+08:00",
+			"end": "2026-09-09T22:40:00+08:00",
+			"url": "https://live.bilibili.com/1750753391"
+		},
+		{
+			"_note": "演示用：只有抖音开播的一天",
+			"platform": "douyin",
+			"title": "【杂谈】深夜电台闲聊",
+			"start": "2026-09-11T19:30:00+08:00",
+			"end": "2026-09-11T21:00:00+08:00",
+			"url": "https://live.douyin.com/407805461300"
+		},
+		{
+			"_note": "演示用：两个平台都开播的一天（B站场次）",
+			"platform": "bilibili",
+			"title": "【游戏】今晚也在受苦",
+			"start": "2026-09-14T20:00:00+08:00",
+			"end": "2026-09-14T23:20:00+08:00",
+			"url": "https://live.bilibili.com/1750753391"
+		},
+		{
+			"_note": "演示用：两个平台都开播的一天（抖音场次）",
+			"platform": "douyin",
+			"title": "【联动】抖音端同步直播",
+			"start": "2026-09-14T21:10:00+08:00",
+			"end": "2026-09-14T22:30:00+08:00",
+			"url": "https://live.douyin.com/407805461300"
+		}
+	]
 }
