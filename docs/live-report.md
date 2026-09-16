@@ -135,6 +135,25 @@ npx tsx scripts/live-data/verify-report-utils.mjs
 
 两个脚本都以非零退出码表示失败，可以直接放进 CI。
 
+### 1.7 直播页开场 hero（复刻 P3RE 官网开场）
+
+`/live/` 的首屏是整屏开场，复刻 [Electr0ME/P3RE-Web-Effect](https://github.com/Electr0ME/P3RE-Web-Effect)：
+蓝波浪帘从整屏盖住状态向下退场 → 居中开场文字 3s 起淡出 → 右侧品牌图 5s 起淡入；
+数据放在首屏之下，下滑才看到。配置在 `live-report.config.json` 的 `hero` 段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `enable` | 关掉则不给内容留首屏空间，数据从导航栏下方直接开始 |
+| `title` / `introLines` | 居中开场文字；默认就是参考仓库原文（Memento Mori + 三行引文） |
+| `waveColor` | 波浪颜色，默认参考的 P3R 蓝 `#469ce5`；填 `theme` 可跟随站点主色 |
+| `logo` | 右侧淡入的品牌图（public 下的路径），留空则不显示 |
+| `backgroundVideos` | 背景视频（public 下的路径数组）：第 1 段在帘子扫完后播放、播完切第 2 段循环；留空则用内置 CSS 动画背景 |
+| `curtainDelaySeconds` / `curtainDurationSeconds` | 帘子的延迟与时长，默认 `1` / `3`（参考值） |
+
+自带素材：`public/videos/live-hero/fv_movie1.webm`（374 KB）与 `fv_movie2.webm`（378 KB），
+换成自己的视频只要替换文件或改 `backgroundVideos` 即可。视频未配置或加载失败时，
+会自动露出内置的 CSS 动画背景（深蓝底 + 漂移光带），不会出现空白首屏。
+
 ---
 
 ## 2. 数据是怎样攒出来的（重要）

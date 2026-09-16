@@ -32,7 +32,10 @@
 		],
 		"waveColor": "#469ce5",
 		"logo": "",
-		"backgroundVideos": [],
+		"backgroundVideos": [
+			"/videos/live-hero/fv_movie1.webm",
+			"/videos/live-hero/fv_movie2.webm"
+		],
 		"curtainDelaySeconds": 1,
 		"curtainDurationSeconds": 3
 	},

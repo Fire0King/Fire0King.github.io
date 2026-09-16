@@ -23,6 +23,7 @@
  */
 
 import type { LiveReportHeroConfig } from "@/types/liveReportConfig";
+import { url } from "@/utils/url-utils";
 
 interface Props {
 	hero: LiveReportHeroConfig;
@@ -37,7 +38,10 @@ const CURTAIN_LAYERS = [1, 2, 3, 4, 5];
 const WAVE_PATH =
 	"M0,150 C60,120 120,58 200,70 C280,82 320,142 400,134 C470,127 500,38 580,42 C660,46 690,122 770,130 C840,137 880,68 960,64 C1040,60 1080,132 1160,140 C1240,148 1280,58 1360,50 C1420,44 1450,92 1440,104 L1440,200 L0,200 Z";
 
-const [introVideo, loopVideo] = hero.backgroundVideos;
+const [introVideoSrc, loopVideoSrc] = hero.backgroundVideos;
+/** 视频路径经 url() 处理，子路径部署（GitHub Pages 项目页等）下也能正确加载 */
+const introVideo = introVideoSrc ? url(introVideoSrc) : undefined;
+const loopVideo = loopVideoSrc ? url(loopVideoSrc) : undefined;
 const waveColor =
 	hero.waveColor.trim() === "theme" ? "var(--primary)" : hero.waveColor;
 /** 开场文字淡出：参考里是固定 3s —— 帘子扫到一半时文字就开始淡出 */
@@ -57,40 +61,35 @@ const hasIntroLines = hero.introLines.length > 0;
 	data-hero
 	style={`--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDelaySeconds}s; --curtain-duration: ${hero.curtainDurationSeconds}s; --intro-fade-delay: ${introFadeDelay}s; --logo-fade-delay: ${logoFadeDelay}s;`}
 >
-	<!-- 背景：配了视频就按参考的播放顺序（第一个播完切第二个循环），否则用内置动画背景 -->
+	<!-- 背景：内置动画背景常驻打底（视频加载失败时兜底），视频按参考顺序叠在其上 -->
 	<div class="live-hero-bg" aria-hidden="true">
-		{
-			introVideo ? (
-				<>
-					<video
-						class="live-hero-video"
-						data-hero-video="intro"
-						src={introVideo}
-						muted
-						playsinline
-						preload="auto"
-					/>
-					{loopVideo && (
-						<video
-							class="live-hero-video"
-							data-hero-video="loop"
-							src={loopVideo}
-							muted
-							loop
-							playsinline
-							preload="auto"
-						/>
-					)}
-				</>
-			) : (
-				<div class="live-hero-backdrop">
-					<span class="live-hero-band band-1"></span>
-					<span class="live-hero-band band-2"></span>
-					<span class="live-hero-band band-3"></span>
-					<span class="live-hero-glow"></span>
-				</div>
-			)
-		}
+		<div class="live-hero-backdrop">
+			<span class="live-hero-band band-1"></span>
+			<span class="live-hero-band band-2"></span>
+			<span class="live-hero-band band-3"></span>
+			<span class="live-hero-glow"></span>
+		</div>
+		{introVideo && (
+			<video
+				class="live-hero-video"
+				data-hero-video="intro"
+				src={introVideo}
+				muted
+				playsinline
+				preload="auto"
+			/>
+		)}
+		{loopVideo && (
+			<video
+				class="live-hero-video"
+				data-hero-video="loop"
+				src={loopVideo}
+				muted
+				loop
+				playsinline
+				preload="auto"
+			/>
+		)}
 	</div>
 
 	<!-- 开场文字：居中，帘子扫完后按参考时序淡出 -->
@@ -142,15 +141,17 @@ const hasIntroLines = hero.introLines.length > 0;
 	.live-hero-video {
 		position: absolute;
 		inset: 0;
+		z-index: 2;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
 	}
 
-	/* 内置动画背景（替代参考里的宣传视频）：深蓝底 + 缓慢漂移的光带 */
+	/* 内置动画背景（视频未配置或加载失败时显示）：深蓝底 + 缓慢漂移的光带 */
 	.live-hero-backdrop {
 		position: absolute;
 		inset: 0;
+		z-index: 1;
 		overflow: hidden;
 		background:
 			radial-gradient(

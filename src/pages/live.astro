@@ -164,6 +164,26 @@ const heroEnabled = liveReportConfig.hero.enable;
 						const p = el.play();
 						if (p && typeof p.catch === "function") p.catch(() => {});
 					};
+					// 视频加载失败时隐藏它，露出内置动画背景（并且不让开场卡住）
+					if (intro) {
+						intro.addEventListener(
+							"error",
+							() => {
+								intro.style.display = "none";
+								play(loop);
+							},
+							{ once: true },
+						);
+					}
+					if (loop) {
+						loop.addEventListener(
+							"error",
+							() => {
+								loop.style.display = "none";
+							},
+							{ once: true },
+						);
+					}
 					this.startVideos = () => {
 						if (!intro) return;
 						play(intro);
