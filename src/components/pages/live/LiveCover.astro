@@ -1,0 +1,446 @@
+---
+/**
+ * 直播数据页面封面 —— Persona 3 Reload 官网开场特效的移植版
+ *
+ * 参考效果（https://github.com/Electr0ME/P3RE-Web-Effect）的构成与时序：
+ *   1. 一叠波浪（多层、带浮动）从画面上方整体扫下，像帘子一样盖过整屏
+ *   2. 帘子后面是背景画面
+ *   3. 居中开场文字先出现，几秒后淡出
+ *   4. 品牌标识（参考里是 P3RE logo）在最后淡入
+ *
+ * 本实现按主题变量重做（颜色跟随站点主色，适配亮/暗色），并做了两处本地化：
+ *   · 背景用站点壁纸（参考里是视频，这里没有视频资源，改用壁纸 + 缓慢缩放）
+ *   · 淡出的"开场文字"用页面描述，而标题常驻（页面不能没有标题），
+ *     相当于参考里的 logo 位置改由标题承担；数据信息行在帘子过后淡入
+ *
+ * 全部是纯 CSS 动画（transform/opacity），不阻塞交互，也不依赖 JS；
+ * 偏好"减少动效"时自动降级为静态封面。
+ */
+
+import ImageWrapper from "@/components/common/ImageWrapper.astro";
+import { backgroundWallpaper } from "@/config";
+import { getImageQuality } from "@/utils/image-utils";
+import { getBackgroundImages } from "@/utils/layout-utils";
+
+interface Props {
+	/** 封面主标题 */
+	title: string;
+	/** 开场引文（会像参考里的 centertext 一样淡出） */
+	subtitle?: string;
+	/** 底部信息行（数据更新于 / 数据范围等），开场结束后淡入 */
+	meta?: string;
+	/** 标题上方的小字（例如 BILIBILI · DOUYIN） */
+	eyebrow?: string;
+}
+
+const { title, subtitle, meta, eyebrow } = Astro.props;
+
+const images = getBackgroundImages();
+const quality = getImageQuality();
+const position =
+	backgroundWallpaper.fullscreen?.position ??
+	backgroundWallpaper.banner?.position ??
+	"center";
+
+/** 波浪层：帘子用 5 层叠出翻涌的浪尖，底部常驻波浪用 4 层 */
+const CURTAIN_LAYERS = [1, 2, 3, 4, 5];
+const WAVE_LAYERS = [1, 2, 3, 4];
+/** 浪脊路径（宽 1440 高 140，preserveAspectRatio=none 拉伸铺满） */
+const WAVE_PATH =
+	"M0,78 C110,34 230,110 350,74 C470,38 590,116 720,78 C850,40 970,104 1090,70 C1210,36 1330,92 1440,62 L1440,140 L0,140 Z";
+---
+
+<section class="live-cover" data-live-cover>
+	<!-- 背景：站点壁纸 + 缓慢缩放（替代参考里的视频） -->
+	<div class="live-cover-media" aria-hidden="true">
+		{
+			images.desktop[0] && (
+				<div class="hidden h-full w-full lg:block">
+					<ImageWrapper
+						alt=""
+						class="live-cover-img"
+						src={images.desktop[0]}
+						position={position}
+						width={1920}
+						widths={[1280, 1920]}
+						sizes="100vw"
+						loading="eager"
+						quality={quality}
+						fadeIn={false}
+					/>
+				</div>
+			)
+		}
+		{
+			images.mobile[0] && (
+				<div class="block h-full w-full lg:hidden">
+					<ImageWrapper
+						alt=""
+						class="live-cover-img"
+						src={images.mobile[0]}
+						position={position}
+						width={828}
+						widths={[640, 828]}
+						sizes="100vw"
+						loading="eager"
+						quality={quality}
+						fadeIn={false}
+					/>
+				</div>
+			)
+		}
+	</div>
+
+	<!-- 压暗，让白色文字在任何壁纸上都可读 -->
+	<div class="live-cover-scrim" aria-hidden="true"></div>
+
+	<!-- 开场文字：小字 + 标题常驻，引文在帘子过后淡出 -->
+	<div class="live-cover-body">
+		{eyebrow && <p class="live-cover-eyebrow">{eyebrow}</p>}
+		<h2 class="live-cover-title">{title}</h2>
+		{subtitle && <p class="live-cover-subtitle">{subtitle}</p>}
+		{meta && <p class="live-cover-meta">{meta}</p>}
+	</div>
+
+	<!-- 底部常驻波浪（帘子过后留下，缓慢浮动） -->
+	<div class="live-cover-waves" aria-hidden="true">
+		{
+			WAVE_LAYERS.map((layer) => (
+				<svg
+					class={`live-cover-wave wave-${layer}`}
+					viewBox="0 0 1440 140"
+					preserveAspectRatio="none"
+				>
+					<path d={WAVE_PATH} />
+				</svg>
+			))
+		}
+	</div>
+
+	<!-- 开场帘子：整块波浪从上方扫到下方 -->
+	<div class="live-cover-curtain" aria-hidden="true">
+		<span class="live-cover-curtain-fill"></span>
+		{
+			CURTAIN_LAYERS.map((layer) => (
+				<svg
+					class={`live-cover-curtain-wave wave-${layer}`}
+					viewBox="0 0 1440 140"
+					preserveAspectRatio="none"
+				>
+					<path d={WAVE_PATH} />
+				</svg>
+			))
+		}
+	</div>
+</section>
+
+<style>
+	.live-cover {
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 72vh;
+		overflow: hidden;
+		border-radius: var(--radius-large, 1rem);
+		background-color: var(--btn-regular-bg);
+		isolation: isolate;
+	}
+
+	/* ── 背景 ────────────────────────────────────────── */
+	.live-cover-media {
+		position: absolute;
+		inset: 0;
+		z-index: 1;
+		overflow: hidden;
+	}
+
+	.live-cover-media :global(.live-cover-img) {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		animation: live-cover-zoom 20s ease-out both;
+	}
+
+	@keyframes live-cover-zoom {
+		from {
+			transform: scale(1.08);
+		}
+		to {
+			transform: scale(1);
+		}
+	}
+
+	.live-cover-scrim {
+		position: absolute;
+		inset: 0;
+		z-index: 2;
+		background:
+			radial-gradient(
+				ellipse at 50% 45%,
+				rgba(0, 0, 0, 0.15) 0%,
+				rgba(0, 0, 0, 0.55) 75%
+			),
+			linear-gradient(
+				to bottom,
+				rgba(0, 0, 0, 0.4) 0%,
+				rgba(0, 0, 0, 0.62) 100%
+			),
+			color-mix(in oklab, var(--primary) 18%, transparent);
+	}
+
+	/* ── 开场文字 ────────────────────────────────────── */
+	.live-cover-body {
+		position: relative;
+		z-index: 4;
+		max-width: 48rem;
+		padding: 2.2rem 1.4rem 4.5rem;
+		text-align: center;
+		color: #fff;
+		animation: live-cover-text-in 1s ease-out 0.15s both;
+	}
+
+	@keyframes live-cover-text-in {
+		from {
+			opacity: 0;
+			transform: translateY(14px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.live-cover-eyebrow {
+		margin-bottom: 0.9rem;
+		font-size: 0.7rem;
+		font-weight: 700;
+		letter-spacing: 0.32em;
+		opacity: 0.88;
+		text-transform: uppercase;
+	}
+
+	.live-cover-title {
+		font-size: clamp(2.1rem, 7vw, 3.6rem);
+		font-weight: 800;
+		line-height: 1.08;
+		letter-spacing: 0.02em;
+		text-shadow: 0 3px 28px rgba(0, 0, 0, 0.55);
+	}
+
+	/* 开场引文：像参考里的 centertext 一样淡出 */
+	.live-cover-subtitle {
+		margin-top: 1rem;
+		font-size: 0.95rem;
+		line-height: 1.7;
+		opacity: 0.92;
+		animation: live-cover-quote-out 1.4s ease-in 3.6s forwards;
+	}
+
+	@keyframes live-cover-quote-out {
+		to {
+			opacity: 0;
+		}
+	}
+
+	/* 数据信息行：帘子扫过之后淡入（对应参考里 logo 的最后出现） */
+	.live-cover-meta {
+		margin-top: 1.1rem;
+		font-size: 0.72rem;
+		letter-spacing: 0.06em;
+		opacity: 0;
+		animation: live-cover-meta-in 1s ease-out 2.5s forwards;
+	}
+
+	@keyframes live-cover-meta-in {
+		to {
+			opacity: 0.78;
+		}
+	}
+
+	/* ── 底部常驻波浪 ─────────────────────────────────── */
+	.live-cover-waves {
+		position: absolute;
+		right: 0;
+		bottom: -1px;
+		left: 0;
+		z-index: 3;
+		height: 4.5rem;
+		pointer-events: none;
+		opacity: 0;
+		animation: live-cover-meta-in 1.2s ease-out 2.2s forwards;
+	}
+
+	.live-cover-wave {
+		position: absolute;
+		bottom: 0;
+		left: -2%;
+		width: 104%;
+		height: 100%;
+		fill: var(--primary);
+		will-change: transform;
+	}
+
+	.live-cover-wave.wave-1 {
+		opacity: 0.22;
+		--wave-bob: 14px;
+		animation: live-wave-bob 5.2s ease-in-out infinite;
+	}
+
+	.live-cover-wave.wave-2 {
+		opacity: 0.34;
+		--wave-bob: 10px;
+		animation: live-wave-bob 4.4s ease-in-out infinite;
+	}
+
+	.live-cover-wave.wave-3 {
+		opacity: 0.5;
+		--wave-bob: 7px;
+		animation: live-wave-bob 3.6s ease-in-out infinite;
+	}
+
+	.live-cover-wave.wave-4 {
+		opacity: 0.7;
+		--wave-bob: 4px;
+		animation: live-wave-bob 2.8s ease-in-out infinite;
+	}
+
+	@keyframes live-wave-bob {
+		50% {
+			transform: translateY(var(--wave-bob, 8px));
+		}
+	}
+
+	/* ── 开场帘子 ─────────────────────────────────────── */
+	.live-cover-curtain {
+		position: absolute;
+		top: 0;
+		right: 0;
+		left: 0;
+		z-index: 6;
+		height: 130%;
+		pointer-events: none;
+		will-change: transform;
+		animation: live-cover-curtain-sweep 1.7s cubic-bezier(0.42, 0, 0.22, 1)
+			0.5s both;
+	}
+
+	@keyframes live-cover-curtain-sweep {
+		from {
+			transform: translateY(-100%);
+		}
+		to {
+			transform: translateY(100%);
+		}
+	}
+
+	.live-cover-curtain-fill {
+		position: absolute;
+		inset: 0 0 4rem 0;
+		background-color: var(--primary);
+	}
+
+	/* 帘子下缘的浪尖：多层错位 + 各自浮动，做出翻涌的边 */
+	.live-cover-curtain-wave {
+		position: absolute;
+		left: -2%;
+		width: 104%;
+		height: 5rem;
+		fill: var(--primary);
+	}
+
+	.live-cover-curtain-wave.wave-1 {
+		bottom: -4.6rem;
+		opacity: 0.9;
+		--wave-bob: 10px;
+		animation: live-wave-bob 1.5s ease-in-out infinite;
+	}
+
+	.live-cover-curtain-wave.wave-2 {
+		bottom: -3.4rem;
+		opacity: 0.8;
+		--wave-bob: 8px;
+		animation: live-wave-bob 1.9s ease-in-out infinite;
+	}
+
+	.live-cover-curtain-wave.wave-3 {
+		bottom: -2.2rem;
+		opacity: 0.72;
+		--wave-bob: 6px;
+		animation: live-wave-bob 2.3s ease-in-out infinite;
+	}
+
+	.live-cover-curtain-wave.wave-4 {
+		bottom: -1.1rem;
+		opacity: 0.86;
+		--wave-bob: 4px;
+		animation: live-wave-bob 2.7s ease-in-out infinite;
+	}
+
+	.live-cover-curtain-wave.wave-5 {
+		bottom: -0.2rem;
+		opacity: 1;
+		--wave-bob: 2px;
+		animation: live-wave-bob 3.1s ease-in-out infinite;
+	}
+
+	@media (min-width: 768px) {
+		.live-cover {
+			min-height: min(86vh, 46rem);
+		}
+
+		.live-cover-body {
+			padding: 3rem 2rem 5.5rem;
+		}
+
+		.live-cover-waves {
+			height: 6rem;
+		}
+
+		.live-cover-curtain-wave {
+			height: 6rem;
+		}
+
+		.live-cover-curtain-wave.wave-1 {
+			bottom: -5.6rem;
+		}
+
+		.live-cover-curtain-wave.wave-2 {
+			bottom: -4.2rem;
+		}
+
+		.live-cover-curtain-wave.wave-3 {
+			bottom: -2.8rem;
+		}
+
+		.live-cover-curtain-wave.wave-4 {
+			bottom: -1.4rem;
+		}
+	}
+
+	/* 减少动效：保留静态封面（波浪作为装饰），去掉帘子、缩放与淡出 */
+	@media (prefers-reduced-motion: reduce) {
+		.live-cover-media :global(.live-cover-img),
+		.live-cover-body,
+		.live-cover-subtitle,
+		.live-cover-meta,
+		.live-cover-waves,
+		.live-cover-wave,
+		.live-cover-curtain-wave {
+			animation: none;
+		}
+
+		.live-cover-subtitle,
+		.live-cover-meta {
+			opacity: 0.85;
+		}
+
+		.live-cover-waves {
+			opacity: 1;
+		}
+
+		.live-cover-curtain {
+			display: none;
+		}
+	}
+</style>

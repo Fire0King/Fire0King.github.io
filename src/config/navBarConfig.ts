@@ -16,6 +16,9 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 	// 主页
 	links.push(LinkPresets.Home);
 
+	// 直播数据（一级菜单，不放进「我的」子菜单）
+	links.push(LinkPresets.LiveReport);
+
 	// 文章及其子菜单
 	links.push({
 		name: "文章",
@@ -67,9 +70,6 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 
 			// 书签导航
 			LinkPresets.Booknav,
-
-			// 直播数据
-			LinkPresets.LiveReport,
 
 			// 哔哩哔哩追番
 			LinkPresets.Bilibili,
