@@ -52,6 +52,26 @@ export const liveReportConfig: LiveReportConfig = {
 			Number(raw.collector?.titleUpdateIntervalMinutes) || 30,
 		retentionDays: Number(raw.collector?.retentionDays) || 0,
 	},
+	hero: {
+		enable: raw.hero?.enable !== false,
+		// 默认值即参考仓库（P3RE-Web-Effect）的原文
+		title: clean(raw.hero?.title) ?? "Memento Mori",
+		introLines: Array.isArray(raw.hero?.introLines)
+			? raw.hero.introLines.filter(
+					(line): line is string =>
+						typeof line === "string" && line.trim() !== "",
+				)
+			: [],
+		waveColor: clean(raw.hero?.waveColor) ?? "#469ce5",
+		logo: clean(raw.hero?.logo) ?? "",
+		backgroundVideos: Array.isArray(raw.hero?.backgroundVideos)
+			? raw.hero.backgroundVideos.filter(
+					(src): src is string => typeof src === "string" && src.trim() !== "",
+				)
+			: [],
+		curtainDelaySeconds: Number(raw.hero?.curtainDelaySeconds) || 1,
+		curtainDurationSeconds: Number(raw.hero?.curtainDurationSeconds) || 3,
+	},
 	manualRecords: Array.isArray(raw.manualRecords) ? raw.manualRecords : [],
 };
 

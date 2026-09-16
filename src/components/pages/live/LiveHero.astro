@@ -1,90 +1,120 @@
 ---
 /**
- * 直播数据页面 hero —— Persona 3 Reload 官网开场特效的移植版，铺满整个首屏
+ * 直播数据页面的整屏开场 hero
  *
- * 参考（https://github.com/Electr0ME/P3RE-Web-Effect）的构成与时序：
- *   1. 一叠波浪组成的帘子从画面上方整体扫下，盖过整屏
- *   2. 帘子后面是背景画面
- *   3. 居中开场文字先出现，几秒后引文淡出
- *   4. 品牌标识最后淡入
+ * 逐条复刻 https://github.com/Electr0ME/P3RE-Web-Effect （仿女神异闻录3 Reload官网开场特效）：
  *
- * 本实现由页面通过 <LiveHero slot="hero" /> 传给 MainGridLayout，
- * 最终渲染进固定的全屏壁纸层（#wallpaper-wrapper），因此：
- *   · 与首页 hero 一样铺满整个视口（不受内容栏宽度/侧栏影响）
- *   · 内容区被 --content-top:100vh 推到首屏之下，下滑才看到数据
- * 颜色跟随站点主色，适配亮/暗色；全部为纯 CSS 动画 + 一段滚动淡出脚本，
- * 偏好"减少动效"时降级为静态 hero。
+ * | 参考实现                        | 本实现                                                  |
+ * | ------------------------------- | ------------------------------------------------------- |
+ * | .startwaves 固定 120vh 蓝色块    | .live-hero-curtain（同一几何与配色）                     |
+ * | animation: down 3s 1s ease-out  | --curtain-duration / --curtain-delay（默认 3s / 1s）     |
+ * | translateY(-10vh) → (110vh)     | translateY(0) → translateY(100%)（同一段位移）           |
+ * | 5 张波浪图挂在上缘、1~4 层浮动   | 5 层 SVG，同一挂法（bottom:100%）与错位浮动              |
+ * | 视频背景：movie1 播完切 movie2 循环 | backgroundVideos 配置项；留空时用内置 CSS 动画背景替代 |
+ * | #centertext 居中，3s 后 1.5s 淡出 | .live-hero-center（标题 + 引文，同一时序）               |
+ * | #p3relogo 右侧 12%，5s 后 1.5s 淡入 | .live-hero-logo（配置 logo 路径后启用，同一时序与位置） |
+ *
+ * 本页面是博客的一个页面而非独立开场页，因此额外做了两点适配：
+ *   · hero 是固定层，下滑后按滚动淡出，避免浮在数据区后面
+ *   · 标题用 <p> 而非 <h1>（布局里已有 sr-only 的 h1），页面标题与数据信息放在首屏之下的数据区
+ *
+ * 视频素材说明：参考里的两段 mp4 是 P3RE 官方宣传素材，未随仓库分发；
+ * 把 mp4 放到 public/ 并在 live-report.config.json 的 hero.backgroundVideos 里填路径即可完全复刻。
  */
 
+import type { LiveReportHeroConfig } from "@/types/liveReportConfig";
+
 interface Props {
-	/** 主标题（常驻） */
-	title: string;
-	/** 开场引文（按参考的 centertext 时序淡出） */
-	quote?: string;
-	/** 底部信息行（数据更新于 / 数据范围等），帘子过后淡入 */
-	meta?: string;
-	/** 标题上方的小字（例如 BILIBILI · DOUYIN） */
-	eyebrow?: string;
+	hero: LiveReportHeroConfig;
 }
 
-const { title, quote, meta, eyebrow } = Astro.props;
+const { hero } = Astro.props;
 
-/** 帘子浪尖：5 层；底部常驻波浪：4 层 */
+/** 波浪层：帘子上缘 5 层（第 5 层不动，对应参考里的 #shape） */
 const CURTAIN_LAYERS = [1, 2, 3, 4, 5];
-const WAVE_LAYERS = [1, 2, 3, 4];
-/** 浪脊路径（1440×140，preserveAspectRatio=none 拉伸铺满） */
+
+/** 浪脊路径：起伏不均的浪尖（参考里的波浪图也是这种不规则浪形），1440×200 */
 const WAVE_PATH =
-	"M0,78 C110,34 230,110 350,74 C470,38 590,116 720,78 C850,40 970,104 1090,70 C1210,36 1330,92 1440,62 L1440,140 L0,140 Z";
+	"M0,150 C60,120 120,58 200,70 C280,82 320,142 400,134 C470,127 500,38 580,42 C660,46 690,122 770,130 C840,137 880,68 960,64 C1040,60 1080,132 1160,140 C1240,148 1280,58 1360,50 C1420,44 1450,92 1440,104 L1440,200 L0,200 Z";
+
+const [introVideo, loopVideo] = hero.backgroundVideos;
+const waveColor =
+	hero.waveColor.trim() === "theme" ? "var(--primary)" : hero.waveColor;
+/** 开场文字淡出：参考里是固定 3s —— 帘子扫到一半时文字就开始淡出 */
+const introFadeDelay = Math.min(
+	3,
+	hero.curtainDelaySeconds + hero.curtainDurationSeconds,
+);
+/** 品牌图淡入：参考里是 5s（帘子结束后 1s） */
+const logoFadeDelay =
+	hero.curtainDelaySeconds + hero.curtainDurationSeconds + 1;
+/** 预计算：避免在模板的 if 条件里直接用大于号（容易踩到 Astro 解析坑） */
+const hasIntroLines = hero.introLines.length > 0;
 ---
 
-<live-hero-fade class="live-hero">
-	<!-- 压暗 + 主题色染色：主题在全屏 hero 的非首页会隐藏自带 dim，这里补上，保证白字可读 -->
-	<div class="live-hero-scrim" aria-hidden="true"></div>
-
-	<!-- 开场文字 -->
-	<div class="live-hero-body">
-		{eyebrow && <p class="live-hero-eyebrow">{eyebrow}</p>}
-		<p class="live-hero-title">{title}</p>
-		{quote && <p class="live-hero-quote">{quote}</p>}
-		{meta && <p class="live-hero-meta">{meta}</p>}
-	</div>
-
-	<!-- 下滑提示（数据在下面） -->
-	<div class="live-hero-scroll" aria-hidden="true">
-		<span class="live-hero-scroll-text">SCROLL</span>
-		<svg class="live-hero-scroll-icon" viewBox="0 0 24 24" fill="none">
-			<path
-				d="M6 9.5 12 15.5 18 9.5"
-				stroke="currentColor"
-				stroke-width="1.8"
-				stroke-linecap="round"
-				stroke-linejoin="round"></path>
-		</svg>
-	</div>
-
-	<!-- 常驻波浪（底部，缓慢浮动） -->
-	<div class="live-hero-waves" aria-hidden="true">
+<live-hero-fade
+	class="live-hero"
+	data-hero
+	style={`--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDelaySeconds}s; --curtain-duration: ${hero.curtainDurationSeconds}s; --intro-fade-delay: ${introFadeDelay}s; --logo-fade-delay: ${logoFadeDelay}s;`}
+>
+	<!-- 背景：配了视频就按参考的播放顺序（第一个播完切第二个循环），否则用内置动画背景 -->
+	<div class="live-hero-bg" aria-hidden="true">
 		{
-			WAVE_LAYERS.map((layer) => (
-				<svg
-					class={`live-hero-wave wave-${layer}`}
-					viewBox="0 0 1440 140"
-					preserveAspectRatio="none"
-				>
-					<path d={WAVE_PATH} />
-				</svg>
-			))
+			introVideo ? (
+				<>
+					<video
+						class="live-hero-video"
+						data-hero-video="intro"
+						src={introVideo}
+						muted
+						playsinline
+						preload="auto"
+					/>
+					{loopVideo && (
+						<video
+							class="live-hero-video"
+							data-hero-video="loop"
+							src={loopVideo}
+							muted
+							loop
+							playsinline
+							preload="auto"
+						/>
+					)}
+				</>
+			) : (
+				<div class="live-hero-backdrop">
+					<span class="live-hero-band band-1"></span>
+					<span class="live-hero-band band-2"></span>
+					<span class="live-hero-band band-3"></span>
+					<span class="live-hero-glow"></span>
+				</div>
+			)
 		}
 	</div>
 
-	<!-- 开场帘子：整块波浪自上而下扫过整屏 -->
-	<div class="live-hero-curtain" aria-hidden="true">
-		<span class="live-hero-curtain-fill"></span>
+	<!-- 开场文字：居中，帘子扫完后按参考时序淡出 -->
+	<div class="live-hero-center">
+		<p class="live-hero-center-title">{hero.title}</p>
+		{hasIntroLines && (
+			<p class="live-hero-center-lines">
+				{hero.introLines.map((line) => (
+					<span class="live-hero-line">{line}</span>
+				))}
+			</p>
+		)}
+	</div>
+
+	<!-- 右侧品牌图：参考里右侧 12%、垂直居中，5s 后淡入 -->
+	{hero.logo && <img class="live-hero-logo" src={hero.logo} alt="" />}
+
+	<!-- 开场帘子：整屏蓝色块向下退场，浪尖挂在上缘领跑 -->
+	<div class="live-hero-curtain" data-hero-curtain aria-hidden="true">
 		{
 			CURTAIN_LAYERS.map((layer) => (
 				<svg
 					class={`live-hero-curtain-wave wave-${layer}`}
-					viewBox="0 0 1440 140"
+					viewBox="0 0 1440 200"
 					preserveAspectRatio="none"
 				>
 					<path d={WAVE_PATH} />
@@ -98,296 +128,269 @@ const WAVE_PATH =
 	.live-hero {
 		position: absolute;
 		inset: 0;
-		display: flex;
-		align-items: center;
-		justify-content: center;
 		overflow: hidden;
+		background-color: #469ce5;
 	}
 
-	/* ── 压暗 + 主题色染色 ───────────────────────────── */
-	.live-hero-scrim {
+	/* ── 背景 ────────────────────────────────────────── */
+	.live-hero-bg {
 		position: absolute;
 		inset: 0;
 		z-index: 1;
+	}
+
+	.live-hero-video {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	/* 内置动画背景（替代参考里的宣传视频）：深蓝底 + 缓慢漂移的光带 */
+	.live-hero-backdrop {
+		position: absolute;
+		inset: 0;
+		overflow: hidden;
 		background:
 			radial-gradient(
-				ellipse at 50% 45%,
-				rgba(0, 0, 0, 0.12) 0%,
-				rgba(0, 0, 0, 0.5) 78%
-			),
-			linear-gradient(
-				to bottom,
-				rgba(0, 0, 0, 0.38) 0%,
-				rgba(0, 0, 0, 0.58) 100%
-			),
-			color-mix(in oklab, var(--primary) 26%, transparent);
+				circle at 50% 42%,
+				#17456f 0%,
+				#0b1c2f 52%,
+				#05080f 100%
+			);
 	}
 
-	/* ── 开场文字 ────────────────────────────────────── */
-	.live-hero-body {
-		position: relative;
-		z-index: 4;
-		max-width: 52rem;
-		padding: 0 1.5rem 3rem;
+	.live-hero-band {
+		position: absolute;
+		left: -30%;
+		width: 160%;
+		height: 24%;
+		background: linear-gradient(
+			90deg,
+			transparent,
+			rgba(70, 156, 229, 0.55),
+			transparent
+		);
+		filter: blur(26px);
+		will-change: transform;
+	}
+
+	.live-hero-band.band-1 {
+		top: 14%;
+		transform: rotate(-13deg);
+		animation: live-hero-drift 16s ease-in-out infinite;
+	}
+
+	.live-hero-band.band-2 {
+		top: 46%;
+		opacity: 0.72;
+		transform: rotate(-9deg);
+		animation: live-hero-drift 21s ease-in-out infinite reverse;
+	}
+
+	.live-hero-band.band-3 {
+		top: 74%;
+		opacity: 0.5;
+		transform: rotate(-16deg);
+		animation: live-hero-drift 26s ease-in-out infinite;
+	}
+
+	@keyframes live-hero-drift {
+		50% {
+			transform: translate3d(5%, 4%, 0) rotate(-13deg);
+		}
+	}
+
+	.live-hero-glow {
+		position: absolute;
+		inset: 0;
+		background: radial-gradient(
+			circle at 50% 50%,
+			rgba(70, 156, 229, 0.28),
+			transparent 62%
+		);
+		animation: live-hero-glow 11s ease-in-out infinite;
+	}
+
+	@keyframes live-hero-glow {
+		50% {
+			opacity: 0.55;
+		}
+	}
+
+	/* ── 开场文字（参考 #centertext）────────────────────── */
+	.live-hero-center {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		z-index: 2;
+		width: min(92%, 46rem);
 		text-align: center;
 		color: #fff;
-		animation: live-hero-text-in 1s ease-out 0.15s both;
+		transform: translate(-50%, -50%);
+		animation: live-hero-center-out 1.5s linear var(--intro-fade-delay, 4s)
+			forwards;
 	}
 
-	@keyframes live-hero-text-in {
-		from {
+	@keyframes live-hero-center-out {
+		to {
 			opacity: 0;
-			transform: translateY(16px);
+			visibility: hidden;
 		}
+	}
+
+	.live-hero-center-title {
+		font-size: clamp(2rem, 6vw, 3.2rem);
+		font-weight: 700;
+		line-height: 1.15;
+		text-shadow: 0 3px 26px rgba(0, 0, 0, 0.5);
+	}
+
+	.live-hero-center-lines {
+		margin-top: 0.9rem;
+		font-size: clamp(0.85rem, 2.4vw, 1.05rem);
+		line-height: 1.85;
+		opacity: 0.94;
+	}
+
+	.live-hero-line {
+		display: block;
+	}
+
+	/* ── 右侧品牌图（参考 #p3relogo）───────────────────── */
+	.live-hero-logo {
+		position: absolute;
+		top: 50%;
+		right: 12%;
+		z-index: 3;
+		max-width: 26vw;
+		opacity: 0;
+		transform: translateY(-50%);
+		animation: live-hero-logo-in 1.5s linear var(--logo-fade-delay, 5s) forwards;
+	}
+
+	@keyframes live-hero-logo-in {
 		to {
 			opacity: 1;
-			transform: translateY(0);
 		}
 	}
 
-	.live-hero-eyebrow {
-		margin-bottom: 0.9rem;
-		font-size: 0.72rem;
-		font-weight: 700;
-		letter-spacing: 0.34em;
-		opacity: 0.88;
-		text-transform: uppercase;
-	}
-
-	.live-hero-title {
-		font-size: clamp(2.4rem, 9vw, 4.6rem);
-		font-weight: 800;
-		line-height: 1.05;
-		letter-spacing: 0.02em;
-		text-shadow: 0 4px 34px rgba(0, 0, 0, 0.58);
-	}
-
-	/* 开场引文：按参考的 centertext 时序淡出 */
-	.live-hero-quote {
-		margin-top: 1.1rem;
-		font-size: 0.95rem;
-		line-height: 1.75;
-		opacity: 0.92;
-		animation: live-hero-quote-out 1.4s ease-in 3.8s forwards;
-	}
-
-	@keyframes live-hero-quote-out {
-		to {
-			opacity: 0;
-		}
-	}
-
-	/* 数据信息行：帘子过后淡入（对应参考里 logo 最后出现的位置） */
-	.live-hero-meta {
-		margin-top: 1.2rem;
-		font-size: 0.72rem;
-		letter-spacing: 0.06em;
-		opacity: 0;
-		animation: live-hero-fade-in 1s ease-out 2.6s forwards;
-	}
-
-	@keyframes live-hero-fade-in {
-		to {
-			opacity: 0.78;
-		}
-	}
-
-	/* ── 下滑提示 ────────────────────────────────────── */
-	.live-hero-scroll {
-		position: absolute;
-		bottom: 1.6rem;
-		left: 50%;
-		z-index: 5;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.2rem;
-		color: #fff;
-		opacity: 0;
-		transform: translateX(-50%);
-		animation: live-hero-fade-in 1s ease-out 3.2s forwards;
-	}
-
-	.live-hero-scroll-text {
-		font-size: 0.6rem;
-		font-weight: 700;
-		letter-spacing: 0.3em;
-		opacity: 0.75;
-	}
-
-	.live-hero-scroll-icon {
-		width: 1.5rem;
-		height: 1.5rem;
-		opacity: 0.85;
-		animation: live-hero-scroll-bob 1.8s ease-in-out infinite;
-	}
-
-	@keyframes live-hero-scroll-bob {
-		50% {
-			transform: translateY(5px);
-		}
-	}
-
-	/* ── 底部常驻波浪 ─────────────────────────────────── */
-	.live-hero-waves {
-		position: absolute;
-		right: 0;
-		bottom: -1px;
-		left: 0;
-		z-index: 3;
-		height: 7rem;
-		pointer-events: none;
-		opacity: 0;
-		animation: live-hero-fade-in 1.2s ease-out 2.3s forwards;
-	}
-
-	.live-hero-wave {
-		position: absolute;
-		bottom: 0;
-		left: -2%;
-		width: 104%;
-		height: 100%;
-		fill: var(--primary);
-		will-change: transform;
-	}
-
-	.live-hero-wave.wave-1 {
-		opacity: 0.2;
-		--wave-bob: 16px;
-		animation: live-wave-bob 5.2s ease-in-out infinite;
-	}
-
-	.live-hero-wave.wave-2 {
-		opacity: 0.32;
-		--wave-bob: 11px;
-		animation: live-wave-bob 4.4s ease-in-out infinite;
-	}
-
-	.live-hero-wave.wave-3 {
-		opacity: 0.48;
-		--wave-bob: 7px;
-		animation: live-wave-bob 3.6s ease-in-out infinite;
-	}
-
-	.live-hero-wave.wave-4 {
-		opacity: 0.68;
-		--wave-bob: 4px;
-		animation: live-wave-bob 2.8s ease-in-out infinite;
-	}
-
-	@keyframes live-wave-bob {
-		50% {
-			transform: translateY(var(--wave-bob, 8px));
-		}
-	}
-
-	/* ── 开场帘子 ─────────────────────────────────────── */
+	/* ── 开场帘子（参考 .startwaves）───────────────────── */
 	.live-hero-curtain {
 		position: absolute;
-		top: 0;
+		top: -10%;
 		right: 0;
 		left: 0;
-		z-index: 6;
-		height: 130%;
-		pointer-events: none;
+		z-index: 4;
+		height: 120%;
+		background-color: var(--hero-wave, #469ce5);
+		animation: live-hero-curtain-sweep var(--curtain-duration, 3s) ease-out
+			var(--curtain-delay, 1s) both;
 		will-change: transform;
-		animation: live-hero-curtain-sweep 1.8s cubic-bezier(0.42, 0, 0.22, 1) 0.45s
-			both;
 	}
 
 	@keyframes live-hero-curtain-sweep {
 		from {
-			transform: translateY(-100%);
+			transform: translateY(0);
 		}
 		to {
 			transform: translateY(100%);
 		}
 	}
 
-	.live-hero-curtain-fill {
-		position: absolute;
-		inset: 0 0 5rem 0;
-		background-color: var(--primary);
-	}
-
+	/* 浪尖挂在上缘：随帘子一起下移，成为退场时的浪形前沿 */
 	.live-hero-curtain-wave {
 		position: absolute;
-		left: -2%;
-		width: 104%;
-		height: 6rem;
-		fill: var(--primary);
+		left: 0;
+		width: 100%;
+		height: 11vh;
+		fill: var(--hero-wave, #469ce5);
+		will-change: transform;
 	}
 
 	.live-hero-curtain-wave.wave-1 {
-		bottom: -5.6rem;
-		opacity: 0.9;
-		--wave-bob: 12px;
-		animation: live-wave-bob 1.5s ease-in-out infinite;
+		bottom: calc(100% - 0.1vw);
+		opacity: 0.8;
+		animation: live-wave-bob-1 5s ease-in-out infinite;
 	}
 
 	.live-hero-curtain-wave.wave-2 {
-		bottom: -4.2rem;
-		opacity: 0.78;
-		--wave-bob: 9px;
-		animation: live-wave-bob 1.9s ease-in-out infinite;
+		bottom: calc(100% + 0.5vw);
+		opacity: 0.7;
+		animation: live-wave-bob-2 4s ease-in-out infinite;
 	}
 
 	.live-hero-curtain-wave.wave-3 {
-		bottom: -2.8rem;
-		opacity: 0.7;
-		--wave-bob: 7px;
-		animation: live-wave-bob 2.3s ease-in-out infinite;
+		bottom: calc(100% + 0.3vw);
+		opacity: 0.6;
+		animation: live-wave-bob-3 3.5s ease-in-out infinite;
 	}
 
 	.live-hero-curtain-wave.wave-4 {
-		bottom: -1.4rem;
-		opacity: 0.86;
-		--wave-bob: 5px;
-		animation: live-wave-bob 2.7s ease-in-out infinite;
+		bottom: calc(100% + 0.1vw);
+		opacity: 0.5;
+		animation: live-wave-bob-4 3s ease-in-out infinite;
 	}
 
+	/* 第 5 层与参考的 #shape 一样不带动画，压在帘子上缘 */
 	.live-hero-curtain-wave.wave-5 {
-		bottom: -0.2rem;
+		bottom: calc(100% - 1vw);
 		opacity: 1;
-		--wave-bob: 2px;
-		animation: live-wave-bob 3.1s ease-in-out infinite;
+	}
+
+	@keyframes live-wave-bob-1 {
+		50% {
+			transform: translateY(35px);
+		}
+	}
+
+	@keyframes live-wave-bob-2 {
+		50% {
+			transform: translateY(25px);
+		}
+	}
+
+	@keyframes live-wave-bob-3 {
+		50% {
+			transform: translateY(20px);
+		}
+	}
+
+	@keyframes live-wave-bob-4 {
+		50% {
+			transform: translateY(20px);
+		}
 	}
 
 	@media (max-width: 767px) {
-		.live-hero-waves {
-			height: 5rem;
+		.live-hero-curtain-wave {
+			height: 8vh;
 		}
 
-		.live-hero-title {
-			font-size: clamp(2rem, 11vw, 2.8rem);
+		.live-hero-logo {
+			right: 8%;
+			max-width: 40vw;
 		}
 	}
 
-	/* 减少动效：去掉帘子/浮动/淡出，保留静态 hero */
+	/* 减少动效：帘子/浮动/淡入淡出全部取消，直接呈现静态开场 */
 	@media (prefers-reduced-motion: reduce) {
-		.live-hero-body,
-		.live-hero-quote,
-		.live-hero-meta,
-		.live-hero-scroll,
-		.live-hero-scroll-icon,
-		.live-hero-waves,
-		.live-hero-wave,
-		.live-hero-curtain-wave {
+		.live-hero-curtain,
+		.live-hero-curtain-wave,
+		.live-hero-band,
+		.live-hero-glow,
+		.live-hero-center,
+		.live-hero-logo {
 			animation: none;
-		}
-
-		.live-hero-quote,
-		.live-hero-meta {
-			opacity: 0.85;
-		}
-
-		.live-hero-scroll,
-		.live-hero-waves {
-			opacity: 1;
 		}
 
 		.live-hero-curtain {
 			display: none;
+		}
+
+		.live-hero-logo {
+			opacity: 1;
 		}
 	}
 </style>

@@ -70,23 +70,30 @@ const metaLine = [
 	.filter(Boolean)
 	.join(" · ");
 
-// 封面左上角小字：用平台品牌名，跟随当前启用的平台
-const coverEyebrow = enabledLivePlatforms
-	.map((platform) => (platform === "bilibili" ? "BILIBILI" : "DOUYIN"))
-	.join(" · ");
+// hero 是否启用（关掉则数据直接从导航栏下方开始，也不给内容做首屏留白）
+const heroEnabled = liveReportConfig.hero.enable;
 ---
 
-<MainGridLayout heroPage title={title} description={description}>
-	<!-- 整屏 hero：与首页一样铺满首屏，P3R 风格波浪作为背景，下滑才看到数据 -->
-	<LiveHero
-		slot="hero"
-		{title}
-		quote={description}
-		meta={metaLine}
-		eyebrow={coverEyebrow}
-	/>
+<MainGridLayout heroPage={heroEnabled} title={title} description={description}>
+	<!-- 整屏开场 hero（复刻 P3RE-Web-Effect）：首屏只有开场，数据往下滑才出现 -->
+	{heroEnabled && <LiveHero slot="hero" hero={liveReportConfig.hero} />}
 
 	<div class="flex w-full flex-col gap-4">
+		<!-- 首屏之下的数据区表头：hero 是纯开场，页面身份与数据信息放这里 -->
+		<header class="card-base w-full px-4 sm:px-6 py-4">
+			<div class="flex flex-wrap items-baseline justify-between gap-2">
+				<h2 class="text-lg font-bold text-neutral-900 dark:text-neutral-100">
+					{title}
+				</h2>
+				<p class="text-xs text-neutral-500 dark:text-neutral-400">
+					{description}
+				</p>
+			</div>
+			<p class="mt-2 text-xs text-neutral-500 dark:text-neutral-500">
+				{metaLine}
+			</p>
+		</header>
+
 		{
 			!isLiveReportConfigured ? (
 				/* 未配置数据源 */
@@ -131,16 +138,54 @@ const coverEyebrow = enabledLivePlatforms
 	</div>
 
 	<!--
-		hero 的滚动淡出：hero 与壁纸同为固定层，下滑后若不淡出会浮在数据区后面。
-		用自定义元素承载，connectedCallback 在每次进入本页（含 Swup 切换）时重新执行；
-		滚动监听用 rAF 节流，只写 opacity。定义放在 head，保证先于元素升级。
+		hero 的开场时序 + 滚动淡出，复刻参考仓库的 JS 行为：
+		  · 帘子扫完（animationend）后播放第 1 段背景视频，播完隐藏它并切到第 2 段循环
+		  · 滚动时 hero 整体淡出（hero 与壁纸同为固定层，不淡出会浮在数据区后面）
+		用自定义元素承载：connectedCallback 在每次进入本页（含 Swup 切换）重跑，
+		滚动监听 rAF 节流、只写 opacity。定义放 head，保证先于元素升级。
 	-->
 	<script slot="head" is:inline>
 		(function () {
 			if (customElements.get("live-hero-fade")) return;
 			class LiveHeroFade extends HTMLElement {
 				connectedCallback() {
-					if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+					const reduced = window.matchMedia(
+						"(prefers-reduced-motion: reduce)",
+					).matches;
+
+					// ① 背景视频：帘子结束后播第 1 段，播完切第 2 段循环（同参考的 video1/video2）
+					const intro = this.querySelector('[data-hero-video="intro"]');
+					const loop = this.querySelector('[data-hero-video="loop"]');
+					const curtain = this.querySelector("[data-hero-curtain]");
+					this.videos = [intro, loop].filter(Boolean);
+
+					const play = (el) => {
+						if (!el) return;
+						const p = el.play();
+						if (p && typeof p.catch === "function") p.catch(() => {});
+					};
+					this.startVideos = () => {
+						if (!intro) return;
+						play(intro);
+						intro.addEventListener(
+							"ended",
+							() => {
+								intro.style.display = "none";
+								play(loop);
+							},
+							{ once: true },
+						);
+					};
+					if (curtain && !reduced) {
+						curtain.addEventListener("animationend", this.startVideos, {
+							once: true,
+						});
+					} else {
+						this.startVideos();
+					}
+
+					// ② 滚动淡出
+					if (reduced) return;
 					this.ticking = false;
 					this.onScroll = () => {
 						if (this.ticking) return;
@@ -149,7 +194,10 @@ const coverEyebrow = enabledLivePlatforms
 							this.ticking = false;
 							const vh = window.innerHeight || 1;
 							// 首屏 55% 处基本淡完，之后不再干扰数据区
-							const ratio = Math.min(1, Math.max(0, window.scrollY / (vh * 0.55)));
+							const ratio = Math.min(
+								1,
+								Math.max(0, window.scrollY / (vh * 0.55)),
+							);
 							this.style.opacity = String(1 - ratio);
 							this.style.visibility = ratio >= 1 ? "hidden" : "visible";
 						});
@@ -157,8 +205,16 @@ const coverEyebrow = enabledLivePlatforms
 					this.onScroll();
 					window.addEventListener("scroll", this.onScroll, { passive: true });
 				}
+
 				disconnectedCallback() {
 					window.removeEventListener("scroll", this.onScroll);
+					if (this.videos) {
+						for (const video of this.videos) video.pause();
+					}
+					const curtain = this.querySelector("[data-hero-curtain]");
+					if (curtain && this.startVideos) {
+						curtain.removeEventListener("animationend", this.startVideos);
+					}
 				}
 			}
 			customElements.define("live-hero-fade", LiveHeroFade);

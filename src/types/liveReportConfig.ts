@@ -60,6 +60,33 @@ export type LiveReportManualRecord = {
 	url?: string;
 };
 
+/**
+ * 页面 hero（P3R 风格开场）配置
+ * 默认值即 https://github.com/Electr0ME/P3RE-Web-Effect 的原文与配色
+ */
+export type LiveReportHeroConfig = {
+	/** 是否启用整屏 hero（关掉则数据从导航栏下方直接开始） */
+	enable: boolean;
+	/** 居中主标题（参考仓库为 "Memento Mori"） */
+	title: string;
+	/** 居中开场引文，逐行显示；与标题一起在 3s 后淡出（参考仓库的 centertext 行为） */
+	introLines: string[];
+	/** 波浪颜色：任意 CSS 颜色，或 "theme" 表示跟随站点主色 */
+	waveColor: string;
+	/** 右侧淡入的品牌图（public 下的路径，如 /images/p3re-logo.svg）；留空则不显示 */
+	logo: string;
+	/**
+	 * 背景视频（public 下的路径）：
+	 * 第 1 个在帘子扫完之后开始播放，播完自动切到第 2 个并循环（与参考仓库的播放顺序一致）；
+	 * 留空则使用内置的 CSS 动画背景
+	 */
+	backgroundVideos: string[];
+	/** 帘子开始前的延迟（秒），参考仓库为 1 */
+	curtainDelaySeconds: number;
+	/** 帘子下扫的时长（秒），参考仓库为 3 */
+	curtainDurationSeconds: number;
+};
+
 /** 直播报表配置 */
 export type LiveReportConfig = {
 	/** JSON 里不能写注释，用这个字段写说明（不参与逻辑） */
@@ -78,6 +105,8 @@ export type LiveReportConfig = {
 	douyin: LiveReportDouyinConfig;
 	/** 抓取配置 */
 	collector: LiveReportCollectorConfig;
+	/** 页面 hero（P3R 风格开场） */
+	hero: LiveReportHeroConfig;
 	/** 手动补录的历史直播记录 */
 	manualRecords: LiveReportManualRecord[];
 };

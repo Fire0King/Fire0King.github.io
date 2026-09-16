@@ -21,5 +21,20 @@
 		"titleUpdateIntervalMinutes": 30,
 		"retentionDays": 0
 	},
+	"hero": {
+		"_readme": "整屏开场 hero，默认值复刻 https://github.com/Electr0ME/P3RE-Web-Effect ：蓝波浪帘扫下 → 居中开场文字 3 秒后淡出 → 右侧 logo 5 秒淡入。waveColor 填 \"theme\" 可改为跟随站点主色；backgroundVideos 填 public 下的 mp4 路径即可完全复刻参考里的视频背景（播放顺序：第一个播完接第二个循环），留空则用内置的 CSS 动画背景。",
+		"enable": true,
+		"title": "Memento Mori",
+		"introLines": [
+			"Remember, You Will Die.",
+			"Time never waits.",
+			"It delivers all equally to the same end."
+		],
+		"waveColor": "#469ce5",
+		"logo": "",
+		"backgroundVideos": [],
+		"curtainDelaySeconds": 1,
+		"curtainDurationSeconds": 3
+	},
 	"manualRecords": []
 }
