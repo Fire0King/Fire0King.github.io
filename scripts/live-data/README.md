@@ -37,7 +37,7 @@ npx tsx verify-report-utils.mjs          # 页面计算逻辑（需要仓库根�
 | 变量 | 说明 |
 | --- | --- |
 | `BILIBILI_COOKIE` | 可选，B站 Cookie，如 `SESSDATA=xxx; bili_jct=xxx` |
-| `DOUYIN_COOKIE` | **抖音必需**，如 `ttwid=xxx; msToken=xxx`；不配抖音接口返回空响应 |
+| `DOUYIN_COOKIE` | **抖音必需**，如 `ttwid=xxx; msToken=xxx`；不配抖音接口返回空响应。获取步骤见 [`docs/douyin-cookie.md`](../../docs/douyin-cookie.md) |
 
 ## 逻辑
 
@@ -91,7 +91,8 @@ Pages 的部署频率（GitHub Pages 约 10 次/小时、Cloudflare Pages 500 �
 ## 疑难
 
 - **B站 时长偏差**：确认 `live-report.config.json` 里填了 `roomId`，这样用 `live_time` 精确到秒。
-- **抖音总是失败**：必须配 `DOUYIN_COOKIE`，抖音 web 接口匿名请求只返回空响应。
+- **抖音总是失败**：必须配 `DOUYIN_COOKIE`，抖音 web 接口匿名请求只返回空响应；
+  导出与配置步骤见 [`docs/douyin-cookie.md`](../../docs/douyin-cookie.md)。
 - **B站 uid 填错**：B站直播状态接口对不存在的 UID 也返回 `liveStatus: 0`（看起来像“从未开播”），
   用 `--dump` 看 `url` / `roomid` 是否为空即可判断。
 - **Actions 里失败但本地正常**：检查 Secrets 名称是否与 workflow 一致，以及仓库默认分支。

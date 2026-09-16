@@ -64,11 +64,14 @@ src/utils/live-report-data.ts        # 数据装载（构建时读取 JSON + 合
 | Secret | 说明 |
 | --- | --- |
 | `BILIBILI_COOKIE` | 可选，形如 `SESSDATA=xxx; bili_jct=xxx`，降低风控概率 |
-| `DOUYIN_COOKIE` | **抖音必需**，形如 `ttwid=xxx; msToken=xxx`。抖音 web 接口匿名请求返回空响应 |
+| `DOUYIN_COOKIE` | **抖音必需**，形如 `ttwid=xxx; msToken=xxx`。抖音 web 接口匿名请求返回空响应 —— 详细获取步骤见 **[抖音 Cookie 配置指南](./douyin-cookie.md)** |
 
 实测结论（本仓库账号）：B站的用户名片、直播状态、直播间信息**不带 Cookie 也能取到**（粉丝数、是否在播、标题、精确开播时间都正常）；抖音不带 Cookie 时 amagi 会返回 `success:false` + "你的抖音ck可能已经失效"，两个接口都拿不到数据。
 
-脚本对接口失败的处理是**忽略该平台本次结果**（不会把"接口失败"当成"下播"），所以即使抖音没配好，B站数据也会正常记录；只有**所有启用的平台都失败**才返回失败码。抖音取 Cookie：浏览器登录抖音网页版 → F12 → Network 任选一个请求 → 复制 `Cookie` 整段（至少包含 `ttwid`、`msToken`）→ 存成 Secret。
+脚本对接口失败的处理是**忽略该平台本次结果**（不会把"接口失败"当成"下播"），所以即使抖音没配好，B站数据也会正常记录；只有**所有启用的平台都失败**才返回失败码。
+
+> 抖音那条 Cookie 怎么导出、加到哪个仓库、怎么验证生效、过期了怎么办，
+> 全部写在 **[抖音 Cookie 配置指南](./douyin-cookie.md)** 里，照着做即可。
 
 ### 1.3 启用工作流与 Pages
 
@@ -324,7 +327,7 @@ Pages 页面运行时 fetch /api/live-report（同一个 Worker 的路由，带�
 | Actions 报 push 失败 | 分支保护规则 / Ruleset 是否允许 Actions 推送；Settings → Actions → General → Workflow permissions 建议设为 Read and write |
 | Pages 部署报 “Get Pages site failed” | Settings → Pages → Source 必须选 **GitHub Actions** |
 | Pages 打开后样式/图片全丢 | `PUBLIC_BASE_PATH` 不对。project page 必须是 `/<仓库名>`；看页面源码里的 `_astro/` 路径是否带前缀 |
-| 抖音一直采集失败 | 配 `DOUYIN_COOKIE`（抖音匿名必失败）；用 `--dump` 看返回体，抖音字段结构可能变化 |
+| 抖音一直采集失败 | 按 **[抖音 Cookie 配置指南](./douyin-cookie.md)** 配置 `DOUYIN_COOKIE`（抖音匿名必失败）；用 `--dump` 看返回体，抖音字段结构可能变化 |
 | 时长明显偏短/偏长 | 检查 cron 与 `intervalMinutes` 是否一致；Actions 是否被延迟 |
 | 月历少了某天 | `date` 字段是开播日；跨天场次不会同时出现在两天 |
 | 粉丝图某个平台空白 | 该平台还没有快照点（脚本只在粉丝数 > 0 时写入） |

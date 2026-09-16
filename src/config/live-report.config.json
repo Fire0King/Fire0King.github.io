@@ -1,5 +1,5 @@
 {
-	"_readme": "直播数据页面配置。这个文件同时被站点页面(src/config/liveReportConfig.ts)和抓取脚本(scripts/live-data/collect.mjs)读取，改完提交即可生效。Cookie / 密钥不要写在这里，请放到仓库 Secrets：BILIBILI_COOKIE、DOUYIN_COOKIE。字段说明见 docs/live-report.md。",
+	"_readme": "直播数据页面配置。这个文件同时被站点页面(src/config/liveReportConfig.ts)和抓取脚本(scripts/live-data/collect.mjs)读取，改完提交即可生效。Cookie / 密钥不要写在这里：B站可选 BILIBILI_COOKIE，抖音必需 DOUYIN_COOKIE（导出与配置步骤见 docs/douyin-cookie.md）。字段说明见 docs/live-report.md。",
 	"title": "",
 	"subtitle": "",
 	"timezone": "Asia/Shanghai",
