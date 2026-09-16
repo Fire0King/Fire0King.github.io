@@ -1,5 +1,9 @@
 name: Deploy to GitHub Pages
 
+# 部署到 GitHub Pages（project page：https://<owner>.github.io/<repo>/）
+# 构建时自动注入 PUBLIC_SITE_URL / PUBLIC_BASE_PATH，代码里不用写死子路径。
+# 以后换自定义域名或搬到 Cloudflare：在仓库 Variables 里设置这两个变量覆盖即可，无需改代码。
+
 on:
   push:
     branches: [ master ]
@@ -12,6 +16,8 @@ permissions:
   id-token: write
 
 # 确保只有一个部署任务同时运行
+# 注意：GitHub Pages 对部署频率有限制，直播数据采集提交较频繁时建议把
+# src/config/live-report.config.json 里的 collector 间隔调大，减少部署次数
 concurrency:
   group: "pages"
   cancel-in-progress: false
@@ -37,8 +43,34 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       
+      - name: Resolve site URL and base path
+        run: |
+          set -euo pipefail
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          # 仓库名为 <owner>.github.io 时是用户站（部署在根路径），否则是 project page（子路径）
+          if [ -n "${SITE_URL_OVERRIDE}" ]; then
+            echo "PUBLIC_SITE_URL=${SITE_URL_OVERRIDE}" >> "$GITHUB_ENV"
+          else
+            echo "PUBLIC_SITE_URL=https://${OWNER}.github.io" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${BASE_PATH_OVERRIDE}" ]; then
+            echo "PUBLIC_BASE_PATH=${BASE_PATH_OVERRIDE}" >> "$GITHUB_ENV"
+          elif [ "$REPO" = "${OWNER}.github.io" ]; then
+            echo "PUBLIC_BASE_PATH=/" >> "$GITHUB_ENV"
+          else
+            echo "PUBLIC_BASE_PATH=/${REPO}" >> "$GITHUB_ENV"
+          fi
+        env:
+          # 仓库 Variables（Settings → Secrets and variables → Actions → Variables）可覆盖
+          SITE_URL_OVERRIDE: ${{ vars.PUBLIC_SITE_URL }}
+          BASE_PATH_OVERRIDE: ${{ vars.PUBLIC_BASE_PATH }}
+
       - name: Build site
         run: pnpm run build
+        env:
+          PUBLIC_SITE_URL: ${{ env.PUBLIC_SITE_URL }}
+          PUBLIC_BASE_PATH: ${{ env.PUBLIC_BASE_PATH }}
 
       - name: Create .nojekyll file
         run: touch dist/.nojekyll

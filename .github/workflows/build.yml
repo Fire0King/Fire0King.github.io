@@ -3,6 +3,10 @@ name: Build and Check
 on:
   push:
     branches: [ master ] # Adjust branches as needed
+    # 直播数据由 live-data 工作流自动提交，没必要重复跑完整的检查与构建
+    # （部署工作流会比这里更严格地构建一次）
+    paths-ignore:
+      - "src/data/live/**"
   pull_request:
     branches: [ master ] # Adjust branches as needed
 

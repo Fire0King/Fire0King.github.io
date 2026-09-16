@@ -1,0 +1,25 @@
+{
+	"_readme": "直播数据页面配置。这个文件同时被站点页面(src/config/liveReportConfig.ts)和抓取脚本(scripts/live-data/collect.mjs)读取，改完提交即可生效。Cookie / 密钥不要写在这里，请放到仓库 Secrets：BILIBILI_COOKIE、DOUYIN_COOKIE。字段说明见 docs/live-report.md。",
+	"title": "",
+	"subtitle": "",
+	"timezone": "Asia/Shanghai",
+	"weekStart": "monday",
+	"bilibili": {
+		"enable": true,
+		"uid": "525972018",
+		"roomId": "1750753391"
+	},
+	"douyin": {
+		"enable": true,
+		"secUid": "MS4wLjABAAAAI329Ue8mubBCH-KtpQNh7T-IAg-yRZhhAl75VIJgzP4hiHdgN03sTWOUzJMHHTe1",
+		"webRid": "407805461300",
+		"roomId": ""
+	},
+	"collector": {
+		"intervalMinutes": 10,
+		"followerSnapshotIntervalHours": 12,
+		"titleUpdateIntervalMinutes": 30,
+		"retentionDays": 0
+	},
+	"manualRecords": []
+}

@@ -21,6 +21,8 @@ src/config/
 ├── friendsConfig.ts          # 友链配置
 ├── galleryConfig.ts          # 相册配置
 ├── licenseConfig.ts          # 许可证配置
+├── live-report.config.json   # 直播数据页面配置值（页面与抓取脚本共用）
+├── liveReportConfig.ts       # 直播数据页面配置读取与默认值
 ├── musicConfig.ts            # 音乐播放器配置
 ├── navBarConfig.ts           # 导航栏配置（含 LinkPresets 链接预设）
 ├── pioConfig.ts              # 看板娘配置（Spine、Live2D）
@@ -63,6 +65,7 @@ import { profileConfig } from "@/config/profileConfig";
 | `friendsConfig.ts` | 友链配置（友链列表、页面设置） |
 | `galleryConfig.ts` | 相册配置（相册列表、瀑布流列宽） |
 | `licenseConfig.ts` | 许可证配置（CC 协议等） |
+| `liveReportConfig.ts` + `live-report.config.json` | 直播数据页面配置（B站/抖音 账号标识、时区、抓取间隔、手动补录，页面与抓取脚本共用，详见 `docs/live-report.md`） |
 | `musicConfig.ts` | 音乐播放器配置（Meting API / 本地音乐、导航栏和侧边栏开关） |
 | `navBarConfig.ts` | 导航栏配置（动态链接、LinkPresets 链接预设、搜索配置） |
 | `pioConfig.ts` | 看板娘配置（Spine 模型、Live2D 模型） |

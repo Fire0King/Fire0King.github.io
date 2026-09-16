@@ -97,6 +97,7 @@ export type SiteConfig = {
 		bilibili: boolean; // 哔哩哔哩追番页面开关
 		dynamic: boolean; // 动态页面开关
 		projects: boolean; // 项目展示页开关
+		liveReport: boolean; // 直播数据页面开关
 	};
 
 	// 分类导航栏开关

@@ -26,6 +26,8 @@ pnpm-debug.log*
 .vercel
 
 package-lock.json
+# 例外：直播数据采集脚本是独立的 npm 包，需要提交 lockfile 供 GitHub Actions 使用
+!scripts/live-data/package-lock.json
 bun.lockb
 yarn.lock
 

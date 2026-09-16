@@ -54,6 +54,7 @@ import { remarkPlantuml } from "./src/plugins/remark-plantuml.js";
 import { remarkReadingTime } from "./src/plugins/remark-reading-time.mjs";
 import { remarkWikiLink } from "./src/plugins/remark-wiki-link.js";
 import { collectUsedFontCssVars } from "./src/utils/fontHelper";
+import { resolveBasePath } from "./src/utils/site-config-utils";
 
 if (process.env.NODE_ENV === "development") {
 	setMaxListeners(20);
@@ -69,7 +70,9 @@ const adapter = process.env.CF_WORKERS
 export default defineConfig({
 	site: siteConfig.site_url,
 
-	base: "/",
+	// 站点子路径：GitHub Pages 的 project page 需要形如 /Firefly_Blog 的 base，
+	// 由部署平台的环境变量 PUBLIC_BASE_PATH 指定，默认根路径 "/"（Vercel / Cloudflare 等）
+	base: resolveBasePath(),
 	trailingSlash: "always",
 
 	// 字体配置 - 只加载实际使用的字体，跳过未引用的以加快构建
@@ -255,6 +258,10 @@ export default defineConfig({
 					return false;
 				}
 				if (pathname === "/bilibili/" && !siteConfig.pages.bilibili) {
+					return false;
+				}
+				// 带 base 子路径时 pathname 会带前缀（如 /Firefly_Blog/live/），因此用 endsWith
+				if (pathname.endsWith("/live/") && !siteConfig.pages.liveReport) {
 					return false;
 				}
 				if (pathname === "/bangumi/" && !siteConfig.pages.bangumi) {

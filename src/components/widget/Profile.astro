@@ -3,7 +3,7 @@ import { Icon } from "astro-icon/components";
 import ImageWrapper from "@/components/common/ImageWrapper.astro";
 import { profileConfig } from "@/config/profileConfig";
 import { encodeMailto, MAILTO_ONCLICK_SCRIPT } from "@/utils/email-utils";
-import { url } from "@/utils/url-utils";
+import { resolveHref, url } from "@/utils/url-utils";
 
 interface Props {
 	class?: string;
@@ -68,7 +68,7 @@ const className = Astro.props.class;
                             {showName && item.name}
                         </a>
                     } else {
-                        return <a rel="me" aria-label={item.name} href={item.url} target="_blank" class={className}>
+                        return <a rel="me" aria-label={item.name} href={resolveHref(item.url)} target="_blank" class={className}>
                             <Icon name={item.icon} class="text-[1.5rem]"></Icon>
                             {showName && item.name}
                         </a>
@@ -84,7 +84,7 @@ const className = Astro.props.class;
                             {item.name}
                         </a>
                     } else {
-                        return <a rel="me" aria-label={item.name} href={item.url} target="_blank"
+                        return <a rel="me" aria-label={item.name} href={resolveHref(item.url)} target="_blank"
                                             class="btn-regular rounded-lg h-10 gap-2 px-3 font-bold active:scale-95">
                                 <Icon name={item.icon} class="text-[1.5rem]"></Icon>
                                 {item.name}

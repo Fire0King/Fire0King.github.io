@@ -97,6 +97,20 @@ export function url(path: string): string {
 	return joinUrl("", import.meta.env.BASE_URL, path);
 }
 
+/**
+ * 解析配置文件里写的链接（公告、个人资料、横幅文字等）。
+ * 外链 / 协议相对 / mailto: / tel: / 锚点 / data: 原样返回，站内路径交给 url() 加 BASE_URL。
+ *
+ * 子路径部署（例如 GitHub Pages 的 https://user.github.io/repo/）时，
+ * 配置里写的 "/rss/" 这类链接如果不经过这里，会指向站点根路径而 404。
+ */
+export function resolveHref(path: string): string {
+	if (!path) return path;
+	if (/^(https?:)?\/\//i.test(path)) return path;
+	if (/^(mailto:|tel:|data:|#)/i.test(path)) return path;
+	return url(path);
+}
+
 // 内容详情页路径模式：文章(/posts/、/post/) 与 项目详情(/projects/<slug>/)
 // 用正则而非 includes("/projects/")，是为了不把 /projects/ 列表页误判成详情页
 const CONTENT_DETAIL_PATH_PATTERNS = [

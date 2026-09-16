@@ -162,8 +162,10 @@ export function buildAtomFeed(opts: {
 		generator,
 		includeContent = true,
 	} = opts;
-	const siteRoot = toAbsoluteUrl(site, "/");
-	const selfLink = toAbsoluteUrl(site, "atom.xml");
+	// 站内地址必须经 url() 补上 BASE_URL，否则子路径部署（GitHub Pages 的 /repo/）下
+	// 订阅源里的站点根地址与 self 链接会指向域名根路径而 404
+	const siteRoot = new URL(url("/"), site).href;
+	const selfLink = new URL(url("atom.xml"), site).href;
 	const feedUpdated =
 		entries.reduce<Date | null>(
 			(latest, e) =>

@@ -1,10 +1,15 @@
 import type { SiteConfig } from "@/types/siteConfig";
 import { resolvePageToggles } from "../utils/page-toggle-utils";
-import { resolveSiteLang } from "../utils/site-config-utils";
+import { resolveSiteLang, resolveSiteUrl } from "../utils/site-config-utils";
 
 // 定义站点语言
 // 语言代码，例如：'zh_CN', 'zh_TW', 'en', 'ja', 'ru', 'ko'。
 const SITE_LANG = resolveSiteLang("zh_CN");
+
+// 站点 URL（origin，不要带子路径）
+// 子路径（例如 GitHub Pages 的 /Firefly_Blog）由部署平台的 PUBLIC_BASE_PATH 环境变量处理。
+// 部署平台设置 PUBLIC_SITE_URL 即可覆盖这里的默认值，无需改代码。
+const SITE_URL = resolveSiteUrl("https://fire0king.github.io");
 
 // 页面开关配置 - 控制特定页面的访问权限，设为false会返回404并自动隐藏对应的导航栏菜单项
 const pages = resolvePageToggles({
@@ -25,6 +30,8 @@ const pages = resolvePageToggles({
 	gallery: true,
 	// 书签导航页面开关
 	booknav: true,
+	// 直播数据页面开关
+	liveReport: true,
 	// 哔哩哔哩追番页面开关
 	bilibili: false,
 	// 番组计划页面开关
@@ -48,7 +55,7 @@ export const siteConfig: SiteConfig = {
 	subtitle: "Demo site",
 
 	// 站点 URL
-	site_url: "https://firefly.cuteleaf.cn",
+	site_url: SITE_URL,
 
 	// 站点描述
 	description:

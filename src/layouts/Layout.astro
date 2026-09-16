@@ -131,6 +131,11 @@ const siteLogo = await getSiteLogo();
 // canonical：对 /archive/ 与 /search/ 剥离查询串，避免筛选视图自我 canonical 到 ?tag= 等
 const canonicalUrl = getCanonicalUrl(Astro.url);
 
+// 订阅地址：site 是站点 origin（不含子路径 base），所以必须用 url() 补上 BASE_URL，
+// 否则在 GitHub Pages 这类子路径部署下会自动发现链接 404
+const rssFeedUrl = new URL(url("rss.xml"), Astro.site).href;
+const atomFeedUrl = new URL(url("atom.xml"), Astro.site).href;
+
 // OG 图片：文章走生成图/封面，非文章页回退到站点 logo
 let ogImageUrl: string | undefined;
 let ogImageWidth: number | undefined;
@@ -494,14 +499,14 @@ const ogImageAlt = propsOgImageAlt ?? pageTitle;
       rel="alternate"
       type="application/rss+xml"
       title={profileConfig.name}
-      href={`${Astro.site}rss.xml`}
+      href={rssFeedUrl}
     />
 
     <link
       rel="alternate"
       type="application/atom+xml"
       title={profileConfig.name}
-      href={`${Astro.site}atom.xml`}
+      href={atomFeedUrl}
     />
 
     <!-- Font Setup (Astro Font API) -->

@@ -68,6 +68,9 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 			// 书签导航
 			LinkPresets.Booknav,
 
+			// 直播数据
+			LinkPresets.LiveReport,
+
 			// 哔哩哔哩追番
 			LinkPresets.Bilibili,
 
@@ -205,6 +208,12 @@ export const LinkPresets: Record<string, NavBarLink> = {
 		url: "/booknav/",
 		icon: "material-symbols:bookmarks",
 		pageKey: "booknav",
+	},
+	LiveReport: {
+		name: "直播数据",
+		url: "/live/",
+		icon: "material-symbols:live-tv",
+		pageKey: "liveReport",
 	},
 	Bilibili: {
 		name: "哔哩哔哩",

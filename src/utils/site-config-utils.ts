@@ -47,6 +47,41 @@ export function resolveSiteLang(
 	return normalizeSiteLang(readSiteLangEnv()) ?? defaultLang;
 }
 
+// 读取字符串型环境变量
+// 注意：Astro 加载 astro.config.mjs 的阶段，Vite 还没把 PUBLIC_* 注入 import.meta.env，
+// 因此 import.meta.env 取不到时必须回退到 process.env，否则部署平台设置的变量不会生效。
+// 浏览器端则相反：import.meta.env 已被静态替换，process 不存在，所以用 typeof 保护。
+function readPublicEnv(key: string): string | undefined {
+	try {
+		const raw = (import.meta.env as Record<string, unknown>)[key];
+		if (typeof raw === "string" && raw.trim()) return raw.trim();
+	} catch {
+		// 非 Vite 环境（例如直接跑构建脚本）没有 import.meta.env
+	}
+	if (typeof process === "undefined") return undefined;
+	const value = process.env[key];
+	return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+// 站点 URL（origin，不含子路径），环境变量 PUBLIC_SITE_URL 优先
+// 例：GitHub Pages 上设为 https://<用户名>.github.io，子路径由 PUBLIC_BASE_PATH 处理
+export function resolveSiteUrl(defaultUrl: string): string {
+	const value = readPublicEnv("PUBLIC_SITE_URL");
+	if (!value) return defaultUrl;
+	return value.replace(/\/+$/, "");
+}
+
+// 站点子路径 base，环境变量 PUBLIC_BASE_PATH 优先，默认根路径 "/"
+// 例：GitHub Pages 的 project page（https://user.github.io/repo/）需要设置为 /repo
+// Astro 会据此生成 import.meta.env.BASE_URL，主题内所有链接/资源都走 url() 适配
+export function resolveBasePath(defaultBase = "/"): string {
+	const value = readPublicEnv("PUBLIC_BASE_PATH") ?? defaultBase;
+	const trimmed = value.trim();
+	if (!trimmed || trimmed === "/") return "/";
+	// 去掉首尾多余的斜杠，Astro 期望形如 "/repo"
+	return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
 // 由语言代码生成 OpenGraph og:locale（language_TERRITORY 格式）。
 // 站点语言已是下划线形式（zh_CN/zh_TW/en/ja/ko/ru），仅需为无地区的语言补全区号。
 export function getOgLocale(lang: string): string {

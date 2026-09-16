@@ -1,0 +1,80 @@
+name: Live data collector
+
+# 定时抓取 B站 / 抖音 的直播状态与粉丝数，写入 src/data/live/*.json
+# 提交后 Cloudflare Pages（或其他平台）会自动重新构建，页面即可看到最新数据。
+#
+# 说明：
+#   · cron 使用 UTC 时间，*/10 * * * * 表示每 10 分钟一次（GitHub 高峰期可能延迟几分钟）
+#   · 公开仓库的 Actions 分钟数免费不限量；私有仓库每月只有 2000 分钟，
+#     建议把频率改成 */30（并同步修改 src/config/live-report.config.json 的 intervalMinutes）
+#   · 本工作流只在有内容变化时才提交，避免制造无意义的提交记录
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  # 手动触发：仓库 Actions 页面上的 Run workflow
+  workflow_dispatch:
+  # 修改抓取脚本或配置后立即验证一次
+  push:
+    paths:
+      - "scripts/live-data/**"
+      - "src/config/live-report.config.json"
+      - ".github/workflows/live-data.yml"
+
+# 需要写权限才能把采集结果提交回仓库
+permissions:
+  contents: write
+
+# 同一时间只跑一个采集任务，避免两个任务同时改写数据文件
+concurrency:
+  group: live-data
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: scripts/live-data/package-lock.json
+
+      - name: Install collector dependencies
+        run: npm ci --prefix scripts/live-data --no-audit --no-fund
+
+      - name: Collect live data
+        env:
+          # 可选：在仓库 Settings → Secrets and variables → Actions 里配置
+          BILIBILI_COOKIE: ${{ secrets.BILIBILI_COOKIE }}
+          DOUYIN_COOKIE: ${{ secrets.DOUYIN_COOKIE }}
+        run: node scripts/live-data/collect.mjs
+
+      - name: Commit data changes
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain src/data/live)" ]; then
+            echo "数据无变化，跳过提交"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          STAMP=$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M')
+          git add src/data/live
+          git commit -m "chore(data): 更新直播数据 ${STAMP}"
+          # 采集期间可能有人推了新提交，push 失败就 rebase 后重试
+          for attempt in 1 2 3; do
+            if git push; then
+              exit 0
+            fi
+            echo "push 失败，第 ${attempt} 次重试前先 rebase"
+            git pull --rebase --autostash
+            sleep 5
+          done
+          echo "连续三次 push 失败，请检查分支保护规则是否允许 Actions 推送" >&2
+          exit 1

@@ -1,0 +1,16 @@
+{
+	"name": "firefly-live-data",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Firefly 博客直播数据采集脚本（独立依赖，不参与站点构建）",
+	"scripts": {
+		"collect": "node collect.mjs",
+		"collect:dry": "node collect.mjs --dry-run",
+		"collect:dump": "node collect.mjs --dump",
+		"demo": "node collect.mjs --demo"
+	},
+	"dependencies": {
+		"@ikenxuan/amagi": "6.6.0"
+	}
+}
