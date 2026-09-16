@@ -17,6 +17,8 @@
  *   · 背景视频加载失败或未配置时，露出内置的 CSS 动画背景
  */
 
+import { existsSync } from "node:fs";
+import path from "node:path";
 import type { LiveReportHeroConfig } from "@/types/liveReportConfig";
 import { url } from "@/utils/url-utils";
 
@@ -31,10 +33,39 @@ const { hero, smallLine } = Astro.props;
 /** 帘子上缘的浪尖：用 public/images/live-hero/wave-1..5.svg（参考同款素材） */
 const CURTAIN_LAYERS = [1, 2, 3, 4, 5];
 
+/** public 下的路径是否存在（构建期判断，用于决定要不要给视频加 mp4 兜底源） */
+function publicFileExists(publicPath: string): boolean {
+	return existsSync(path.join(process.cwd(), "public", publicPath));
+}
+
+/**
+ * 生成 <source> 列表：WebM（体积小，Chrome/Edge/Firefox 优先命中）在前，
+ * 同名 mp4 作为兜底（Safari 等不支持 VP9/WebM 的浏览器会跳到它）。
+ */
+function videoSources(
+	src: string | undefined,
+): { src: string; type: string }[] {
+	if (!src) return [];
+	const sources: { src: string; type: string }[] = [];
+	const ext = src.split(".").pop()?.toLowerCase();
+	sources.push({
+		src: url(src),
+		type: ext === "webm" ? "video/webm" : "video/mp4",
+	});
+	if (ext === "webm") {
+		const mp4 = src.replace(/\.webm$/i, ".mp4");
+		if (publicFileExists(mp4)) {
+			sources.push({ src: url(mp4), type: "video/mp4" });
+		}
+	}
+	return sources;
+}
+
 const [introVideoSrc, loopVideoSrc] = hero.backgroundVideos;
-/** 视频路径经 url() 处理，子路径部署（GitHub Pages 项目页等）下也能正确加载 */
-const introVideo = introVideoSrc ? url(introVideoSrc) : undefined;
-const loopVideo = loopVideoSrc ? url(loopVideoSrc) : undefined;
+const introSources = videoSources(introVideoSrc);
+const loopSources = videoSources(loopVideoSrc);
+const hasIntroVideo = introSources.length > 0;
+const hasLoopVideo = loopSources.length > 0;
 
 const waveColor =
 	hero.waveColor.trim() === "theme" ? "var(--primary)" : hero.waveColor;
@@ -60,7 +91,7 @@ const hasSmallLine = Boolean(smallLine?.trim());
 			<span class="live-hero-band band-3"></span>
 			<span class="live-hero-glow"></span>
 		</div>
-		{introVideo && (
+		{hasIntroVideo && (
 			<video
 				class="live-hero-video"
 				data-hero-video="intro"
@@ -68,10 +99,12 @@ const hasSmallLine = Boolean(smallLine?.trim());
 				playsinline
 				preload="auto"
 			>
-				<source src={introVideo} type="video/webm" />
+				{introSources.map((source) => (
+					<source src={source.src} type={source.type} />
+				))}
 			</video>
 		)}
-		{loopVideo && (
+		{hasLoopVideo && (
 			<video
 				class="live-hero-video"
 				data-hero-video="loop"
@@ -80,10 +113,15 @@ const hasSmallLine = Boolean(smallLine?.trim());
 				playsinline
 				preload="auto"
 			>
-				<source src={loopVideo} type="video/webm" />
+				{loopSources.map((source) => (
+					<source src={source.src} type={source.type} />
+				))}
 			</video>
 		)}
 	</div>
+
+	<!-- 轻压暗：保证白色标题在视频/壁纸上可读（比参考多这一层，文字是常驻的） -->
+	<div class="live-hero-scrim" aria-hidden="true"></div>
 
 	<!-- 开场文字：大字（站点标题）常驻，小字（数据更新信息）在帘子过后淡入 -->
 	<div class="live-hero-center">
@@ -209,12 +247,30 @@ const hasSmallLine = Boolean(smallLine?.trim());
 		}
 	}
 
+	/* 轻压暗层：白字在视频上仍可读（文字在这里是常驻的，参考里文字会淡出所以没有这层） */
+	.live-hero-scrim {
+		position: absolute;
+		inset: 0;
+		z-index: 2;
+		background:
+			radial-gradient(
+				ellipse at 50% 45%,
+				rgba(0, 0, 0, 0.05) 0%,
+				rgba(0, 0, 0, 0.4) 78%
+			),
+			linear-gradient(
+				to bottom,
+				rgba(0, 0, 0, 0.22) 0%,
+				rgba(0, 0, 0, 0.38) 100%
+			);
+	}
+
 	/* ── 开场文字 ────────────────────────────────────── */
 	.live-hero-center {
 		position: absolute;
 		top: 50%;
 		left: 50%;
-		z-index: 2;
+		z-index: 3;
 		width: min(92%, 48rem);
 		text-align: center;
 		color: #fff;
@@ -260,7 +316,7 @@ const hasSmallLine = Boolean(smallLine?.trim());
 		position: absolute;
 		top: 50%;
 		right: 12%;
-		z-index: 3;
+		z-index: 4;
 		max-width: 26vw;
 		opacity: 0;
 		transform: translateY(-50%);
@@ -279,7 +335,7 @@ const hasSmallLine = Boolean(smallLine?.trim());
 		top: -10%;
 		right: 0;
 		left: 0;
-		z-index: 4;
+		z-index: 5;
 		height: 120%;
 		background-color: var(--hero-wave, #469ce5);
 		animation: live-hero-curtain-sweep var(--curtain-duration, 3s) ease-out
@@ -296,12 +352,17 @@ const hasSmallLine = Boolean(smallLine?.trim());
 		}
 	}
 
-	/* 浪尖挂在上缘：随帘子一起下移，成为退场时的浪形前沿（用参考同款素材） */
+	/*
+		浪尖挂在上缘：随帘子一起下移，成为退场时的浪形前沿。
+		素材是 1920×200、ink 集中在底部约 1/4（浪脊），所以给固定高度 + preserveAspectRatio=none，
+		让浪脊在任何屏宽下都保持可见高度（等比缩放的话窄屏会细到看不见）。
+	*/
 	.live-hero-curtain-wave {
 		position: absolute;
 		left: 0;
 		width: 100%;
-		height: auto;
+		height: 9vh;
+		min-height: 2.5rem;
 		will-change: transform;
 	}
 

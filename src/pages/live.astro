@@ -169,47 +169,37 @@ const heroEnabled = liveReportConfig.hero.enable;
 					this.timers = [];
 					this.gestures = [];
 
-					const play = (el) => {
-						if (!el) return Promise.resolve();
-						const p = el.play();
-						return p && typeof p.then === "function" ? p : Promise.resolve();
-					};
+					// Swup 是用 innerHTML 替换容器的，而 Chrome/Safari 在 innerHTML 插入时
+					// 不会把 muted 属性同步到 video.muted 属性（老问题）。muted 失效 →
+					// play() 被自动播放策略拒绝 → 视频永远不播。这里显式设置 property 兜住。
+					for (const video of this.videos) {
+						video.muted = true;
+						video.defaultMuted = true;
+						video.playsInline = true;
+						video.volume = 0;
+						video.setAttribute("muted", "");
+						video.setAttribute("playsinline", "");
+					}
 
-					// 视频加载失败 / 解码失败：隐藏它，露出内置动画背景，并且不让开场卡住
-					const fail = (el, then) => {
-						if (!el) return;
-						el.addEventListener(
-							"error",
-							() => {
-								el.style.display = "none";
-								if (then) then();
-							},
-							{ once: true },
-						);
-						const source = el.querySelector("source");
-						if (source) {
-							source.addEventListener(
-								"error",
-								() => {
-									el.style.display = "none";
-									if (then) then();
-								},
-								{ once: true },
-							);
-						}
-					};
-					fail(intro, () => play(loop));
-					fail(loop);
+					/** 当前该播的那一段（第 1 段结束后切第 2 段） */
+					const currentVideo = () =>
+						intro && intro.style.display !== "none" ? intro : loop;
 
-					// 自动播放被拦截时，等首次用户手势再试（静音视频通常不会被拦，这里只做兜底）
-					const retryOnGesture = (el) => {
+					let tryPlay;
+					/** 自动播放被拦截时，等首次用户手势再试一次 */
+					const retryOnGesture = () => {
+						if (this.gestures.length > 0) return;
 						const handler = () => {
 							for (const off of this.gestures) off();
 							this.gestures = [];
-							play(el);
+							tryPlay(currentVideo());
 						};
-						const events = ["pointerdown", "touchstart", "keydown", "scroll"];
-						for (const name of events) {
+						for (const name of [
+							"pointerdown",
+							"touchstart",
+							"keydown",
+							"scroll",
+						]) {
 							const opts = { once: true, passive: true };
 							window.addEventListener(name, handler, opts);
 							this.gestures.push(() =>
@@ -218,11 +208,55 @@ const heroEnabled = liveReportConfig.hero.enable;
 						}
 					};
 
+					tryPlay = (el) => {
+						if (!el) return;
+						const result = el.play();
+						if (result && typeof result.catch === "function") {
+							result.catch((error) => {
+								console.warn(
+									"[live-hero] 背景视频未能自动播放，将在首次交互后重试：",
+									error && error.name,
+								);
+								retryOnGesture();
+							});
+						}
+					};
+
+					// 视频加载失败 / 解码失败：隐藏它，露出内置动画背景，并且不让开场卡住
+					const fail = (el, then) => {
+						if (!el) return;
+						const hide = () => {
+							el.style.display = "none";
+							if (then) then();
+						};
+						el.addEventListener("error", hide, { once: true });
+						const source = el.querySelector("source");
+						if (source) {
+							source.addEventListener("error", hide, { once: true });
+						}
+					};
+					fail(intro, () => tryPlay(loop));
+					fail(loop);
+
+					// 额外兜底：数据就绪后（canplay）若「当前该播的那段」还没起来，再试一次
+					// （应对 play() 调用早于可播放，或首帧被策略拦下的情况）
+					for (const video of this.videos) {
+						video.addEventListener("canplay", () => {
+							if (
+								this.videosStarted &&
+								video.paused &&
+								video === currentVideo()
+							) {
+								tryPlay(video);
+							}
+						});
+					}
+
 					this.startVideos = () => {
 						if (this.videosStarted) return;
 						this.videosStarted = true;
 						if (!intro) return;
-						play(intro).catch(() => retryOnGesture(intro));
+						tryPlay(intro);
 						intro.addEventListener(
 							"ended",
 							() => {
