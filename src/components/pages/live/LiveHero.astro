@@ -303,6 +303,20 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 		display: none;
 	}
 
+	/*
+		开场演完（视频接上 / 走兜底）后脚本会打上 data-hero-opening="done"：
+		把帘子和开场文字彻底移出渲染。
+
+		为什么不能只靠动画的 forwards：hero 滑过首屏时会被设成 visibility: hidden，
+		浏览器会把这种「不参与渲染」子树里已结束的 CSS 动画丢掉，等再滚回来时按
+		原始声明重建 —— 于是帘子又扫一次、标题又淡入一次。这里直接 display: none，
+		既省掉重建，也保证上滑回来只看到循环动画。
+	*/
+	live-hero-fade[data-hero-opening="done"] .live-hero-curtain,
+	live-hero-fade[data-hero-opening="done"] .live-hero-center {
+		display: none;
+	}
+
 	/* ── 文字 ────────────────────────────────────────── */
 	.live-hero-center {
 		position: absolute;

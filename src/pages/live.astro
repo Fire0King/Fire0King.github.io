@@ -161,7 +161,45 @@ const heroEnabled = liveReportConfig.hero.enable;
 		(function () {
 			if (customElements.get("live-hero-fade")) return;
 			class LiveHeroFade extends HTMLElement {
+				/**
+				 * 直接把子节点拿来用是不行的：自定义元素在「解析期升级」时（脚本写在 head 里、
+				 * hero 在 body 里，就是这种情况），connectedCallback 会在子节点解析出来之前
+				 * 就触发 —— 这时候 querySelector 全是 null，videos 会是空数组，视频永远不会播。
+				 * 所以先判断子节点到没到，没到就等 MutationObserver 通知。
+				 */
 				connectedCallback() {
+					if (this.inited) return;
+					if (this.hasChildren()) {
+						this.init();
+						return;
+					}
+					this.observer = new MutationObserver(() => {
+						if (this.inited || !this.hasChildren()) return;
+						this.init();
+					});
+					this.observer.observe(this, { childList: true });
+				}
+
+				/** hero 的关键子节点（视频 / 白底）是否已经解析出来 */
+				hasChildren() {
+					return Boolean(
+						this.querySelector("[data-hero-video]") ||
+							this.querySelector(".live-hero-white"),
+					);
+				}
+
+				stopObserving() {
+					if (this.observer) {
+						this.observer.disconnect();
+						this.observer = null;
+					}
+				}
+
+				init() {
+					if (this.inited) return;
+					this.inited = true;
+					this.stopObserving();
+
 					const reduced = window.matchMedia(
 						"(prefers-reduced-motion: reduce)",
 					).matches;
@@ -302,6 +340,10 @@ const heroEnabled = liveReportConfig.hero.enable;
 					const white = this.querySelector(".live-hero-white");
 					const dropWhite = () => {
 						if (white) white.style.display = "none";
+						// 开场到此结束：帘子与标题交给 CSS 彻底移除渲染。
+						// 不这么做的话，hero 滑过首屏被 visibility: hidden 藏起来时，
+						// 浏览器会丢掉这两个已结束的 CSS 动画，上滑回来又重演一遍开场。
+						this.setAttribute("data-hero-opening", "done");
 					};
 
 					/**
@@ -449,6 +491,9 @@ const heroEnabled = liveReportConfig.hero.enable;
 				}
 
 				disconnectedCallback() {
+					// 允许元素被移动后重新连接时再初始化一次
+					this.inited = false;
+					this.stopObserving();
 					window.removeEventListener("scroll", this.onScroll);
 					for (const timer of this.timers || []) clearTimeout(timer);
 					for (const off of this.gestures || []) off();
