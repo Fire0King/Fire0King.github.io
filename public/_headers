@@ -1,0 +1,14 @@
+# Cloudflare Pages 缓存策略
+#
+# 这个文件由 Cloudflare Pages 读取（放在构建产物根目录即可，public/ 会被原样复制到 dist/）。
+# GitHub Pages 不认识它，只会把它当成一个普通文件放着，不影响原有部署。
+#
+# 只对「文件名里带内容哈希、内容变了文件名就会变」的目录设置长缓存，绝对安全；
+# 图片 / 视频 / 字体这些可能被同名替换的目录故意不写死长缓存，
+# 免得你换了素材之后访客还在看旧文件（Cloudflare 自己的默认缓存已经够用）。
+
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/pagefind/*
+  Cache-Control: public, max-age=86400

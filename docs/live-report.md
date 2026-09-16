@@ -155,6 +155,9 @@ node scripts/live-data/verify-state-machine.mjs
 
 # 2) 页面计算逻辑：月历、统计、跨天/闰年日期、粉丝增减
 npx tsx scripts/live-data/verify-report-utils.mjs
+
+# 3) 站点 URL 解析优先级（PUBLIC_SITE_URL > CF_PAGES_URL > 默认值）
+npx tsx scripts/verify-site-url.mjs
 ```
 
 两个脚本都以非零退出码表示失败，可以直接放进 CI。
@@ -370,21 +373,27 @@ GitHub Pages 的限制：
 | 数据时效 | 页面是静态的，数据只在重新部署后更新（提交后自动重建，通常几分钟内） |
 | 自定义域名 | 在仓库 Variables 里设 `PUBLIC_SITE_URL`（例如 `https://blog.example.com`）、`PUBLIC_BASE_PATH=/`，再在 Pages 设置里绑定域名即可 |
 
-### 4.2 Cloudflare Pages（以后搬过去）
+### 4.2 Cloudflare Pages（加速访问）
+
+**逐步操作指南见 [`cloudflare-pages.md`](./cloudflare-pages.md)**（含面板点击路径、环境变量、自检清单、绑自定义域名、排错）。
+这里只留速查表：
 
 | 设置项 | 值 |
 | --- | --- |
 | Framework preset | Astro（或 None） |
 | Build command | `pnpm build` |
 | Build output directory | `dist` |
-| 环境变量 | `NODE_VERSION=22`（仓库要求 Node ≥ 22.23）、`PNPM_VERSION=11.22.0`（可选）、`PUBLIC_SITE_URL=你的域名`、`PUBLIC_BASE_PATH=/` |
+| Root directory | 留空 |
+| 环境变量 | `NODE_VERSION=22`（仓库要求 Node ≥ 22.23）、`PNPM_VERSION=11.22.0`；`PUBLIC_SITE_URL` 绑自定义域名后再加 |
 
 说明：
 
 - `astro.config.mjs` 只在设置了 `CF_WORKERS` 环境变量时启用 Cloudflare **Workers** 适配器。部署到 **Pages**（静态）时**不要**设置 `CF_WORKERS`，否则产物会变成 Worker 入口而不是静态站点。
-- 换到 Cloudflare 后，GitHub 仓库 Variables 里的 `PUBLIC_BASE_PATH=/Firefly_Blog` **不会**影响 Cloudflare 的构建（那是 Actions 的环境变量），Cloudflare 侧只要不设 `PUBLIC_BASE_PATH` 就是根路径；但 `PUBLIC_SITE_URL` 记得在 Cloudflare 环境变量里改成新域名，否则 canonical / sitemap 仍指向 github.io。
+- 站点 URL 不用手配：没设 `PUBLIC_SITE_URL` 时，构建会自动用 Cloudflare 注入的 `CF_PAGES_URL`，canonical / sitemap / RSS 直接就是对的；绑了自定义域名再显式设 `PUBLIC_SITE_URL` 覆盖它。
+- 换到 Cloudflare 后，GitHub 仓库 Variables 里的 `PUBLIC_BASE_PATH=/Firefly_Blog` **不会**影响 Cloudflare 的构建（那是 Actions 的环境变量），Cloudflare 侧只要不设 `PUBLIC_BASE_PATH` 就是根路径。
 - 也可以两边同时在线：GitHub Pages 用子路径，Cloudflare 用根路径，一份代码两套环境变量。
-- 生产分支选 `master`，构建缓存建议开启。首次构建约 3~5 分钟。
+- 生产分支选 `main`，构建缓存建议开启。首次构建约 3~6 分钟。
+- 边缘缓存策略写在 `public/_headers`（`/_astro/*` 与 `/pagefind/*` 长缓存），GitHub Pages 会忽略这个文件、不受影响。
 - Pages 的部署方式二选一：
   1. **Git 集成**（推荐）：仓库推送即构建，数据提交后页面自动更新；
   2. **Wrangler 直传**：`pnpm build && npx wrangler pages deploy dist`，适合想自己控制发布时机的情况。

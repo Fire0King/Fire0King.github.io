@@ -63,12 +63,16 @@ function readPublicEnv(key: string): string | undefined {
 	return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-// 站点 URL（origin，不含子路径），环境变量 PUBLIC_SITE_URL 优先
-// 例：GitHub Pages 上设为 https://<用户名>.github.io，子路径由 PUBLIC_BASE_PATH 处理
+// 站点 URL（origin，不含子路径），优先 PUBLIC_SITE_URL，其次 Cloudflare Pages 注入的 CF_PAGES_URL
+// 例：GitHub Pages 上设为 https://<用户名>.github.io，子路径由 PUBLIC_BASE_PATH 处理；
+//     Cloudflare Pages 上不设也行，构建时会自动用当前部署的 https://<项目>.pages.dev
 export function resolveSiteUrl(defaultUrl: string): string {
-	const value = readPublicEnv("PUBLIC_SITE_URL");
-	if (!value) return defaultUrl;
-	return value.replace(/\/+$/, "");
+	const explicit = readPublicEnv("PUBLIC_SITE_URL");
+	if (explicit) return explicit.replace(/\/+$/, "");
+	// Cloudflare Pages 构建环境自带 CF_PAGES_URL，省掉手动配一遍
+	const pagesUrl = readPublicEnv("CF_PAGES_URL");
+	if (pagesUrl) return pagesUrl.replace(/\/+$/, "");
+	return defaultUrl;
 }
 
 // 站点子路径 base，环境变量 PUBLIC_BASE_PATH 优先，默认根路径 "/"
