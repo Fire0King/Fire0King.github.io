@@ -296,6 +296,18 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 	}
 
 	/*
+		移动端取景：素材是 1920×1080 横屏，竖屏下 object-fit: cover 只截得到中间一条，
+		而 P3R 这个画面的主体在左边，所以从左侧开始取景（object-position: left center），
+		保证主体不会被裁掉。桌面端视口比例接近 16:9，几乎没有横向裁切，不用改。
+		两段视频共用同一条规则，交接时取景一致、画面不会跳。
+	*/
+	@media (max-width: 767px) {
+		.live-hero-video {
+			object-position: left center;
+		}
+	}
+
+	/*
 		两段视频的叠放顺序必须写死：第 1 段（intro）在上面，第 2 段（loop）在下面。
 		同 z-index 时按 DOM 顺序画，而 loop 在后面 —— 它预加载好之后即使还是暂停状态，
 		浏览器也会把它的第 1 帧画出来，结果就是「暂停的 loop 静止帧盖住正在播的 intro」，
