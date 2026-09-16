@@ -175,7 +175,7 @@ function toNumber(value, fallback = 0) {
  * 用途：判断 Secret 是否注入成功、关键字段是否齐全（例如抖音的 ttwid）。
  */
 function describeCookie(cookie) {
-	if (!cookie || !cookie.trim()) return "未注入（环境变量为空）";
+	if (!cookie?.trim()) return "未注入（环境变量为空）";
 	const names = cookie
 		.split(";")
 		.map((part) => part.split("=")[0]?.trim())

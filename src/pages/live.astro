@@ -76,7 +76,13 @@ const heroEnabled = liveReportConfig.hero.enable;
 
 <MainGridLayout heroPage={heroEnabled} title={title} description={description}>
 	<!-- 整屏开场 hero（复刻 P3RE-Web-Effect）：首屏只有开场，数据往下滑才出现 -->
-	{heroEnabled && <LiveHero slot="hero" hero={liveReportConfig.hero} />}
+	{heroEnabled && (
+		<LiveHero
+			slot="hero"
+			hero={liveReportConfig.hero}
+			smallLine={metaLine}
+		/>
+	)}
 
 	<div class="flex w-full flex-col gap-4">
 		<!-- 首屏之下的数据区表头：hero 是纯开场，页面身份与数据信息放这里 -->
@@ -138,9 +144,12 @@ const heroEnabled = liveReportConfig.hero.enable;
 	</div>
 
 	<!--
-		hero 的开场时序 + 滚动淡出，复刻参考仓库的 JS 行为：
-		  · 帘子扫完（animationend）后播放第 1 段背景视频，播完隐藏它并切到第 2 段循环
-		  · 滚动时 hero 整体淡出（hero 与壁纸同为固定层，不淡出会浮在数据区后面）
+		hero 的开场时序 + 滚动淡出：
+		  · 帘子退场后播放第 1 段背景视频，播完隐藏它并切到第 2 段循环（同参考的 video1/video2）
+		    触发同时挂了 animationend 与定时器兜底 —— 只靠 animationend 的话，一旦动画
+		    已经结束/被跳过（Swup 切换、减少动效、样式晚到），事件不再触发，视频就永远不播
+		  · 自动播放被拦截时，在首次用户手势（点按/按键/滚动）后重试
+		  · 滚动时 hero 整体淡出；挂载瞬间不做淡出判断，避免切换页面时被误隐藏
 		用自定义元素承载：connectedCallback 在每次进入本页（含 Swup 切换）重跑，
 		滚动监听 rAF 节流、只写 opacity。定义放 head，保证先于元素升级。
 	-->
@@ -153,58 +162,92 @@ const heroEnabled = liveReportConfig.hero.enable;
 						"(prefers-reduced-motion: reduce)",
 					).matches;
 
-					// ① 背景视频：帘子结束后播第 1 段，播完切第 2 段循环（同参考的 video1/video2）
 					const intro = this.querySelector('[data-hero-video="intro"]');
 					const loop = this.querySelector('[data-hero-video="loop"]');
 					const curtain = this.querySelector("[data-hero-curtain]");
 					this.videos = [intro, loop].filter(Boolean);
+					this.timers = [];
+					this.gestures = [];
 
 					const play = (el) => {
-						if (!el) return;
+						if (!el) return Promise.resolve();
 						const p = el.play();
-						if (p && typeof p.catch === "function") p.catch(() => {});
+						return p && typeof p.then === "function" ? p : Promise.resolve();
 					};
-					// 视频加载失败时隐藏它，露出内置动画背景（并且不让开场卡住）
-					if (intro) {
-						intro.addEventListener(
+
+					// 视频加载失败 / 解码失败：隐藏它，露出内置动画背景，并且不让开场卡住
+					const fail = (el, then) => {
+						if (!el) return;
+						el.addEventListener(
 							"error",
 							() => {
-								intro.style.display = "none";
-								play(loop);
+								el.style.display = "none";
+								if (then) then();
 							},
 							{ once: true },
 						);
-					}
-					if (loop) {
-						loop.addEventListener(
-							"error",
-							() => {
-								loop.style.display = "none";
-							},
-							{ once: true },
-						);
-					}
+						const source = el.querySelector("source");
+						if (source) {
+							source.addEventListener(
+								"error",
+								() => {
+									el.style.display = "none";
+									if (then) then();
+								},
+								{ once: true },
+							);
+						}
+					};
+					fail(intro, () => play(loop));
+					fail(loop);
+
+					// 自动播放被拦截时，等首次用户手势再试（静音视频通常不会被拦，这里只做兜底）
+					const retryOnGesture = (el) => {
+						const handler = () => {
+							for (const off of this.gestures) off();
+							this.gestures = [];
+							play(el);
+						};
+						const events = ["pointerdown", "touchstart", "keydown", "scroll"];
+						for (const name of events) {
+							const opts = { once: true, passive: true };
+							window.addEventListener(name, handler, opts);
+							this.gestures.push(() =>
+								window.removeEventListener(name, handler, opts),
+							);
+						}
+					};
+
 					this.startVideos = () => {
+						if (this.videosStarted) return;
+						this.videosStarted = true;
 						if (!intro) return;
-						play(intro);
+						play(intro).catch(() => retryOnGesture(intro));
 						intro.addEventListener(
 							"ended",
 							() => {
 								intro.style.display = "none";
-								play(loop);
+								play(loop).catch(() => retryOnGesture(loop));
 							},
 							{ once: true },
 						);
 					};
+
 					if (curtain && !reduced) {
 						curtain.addEventListener("animationend", this.startVideos, {
 							once: true,
 						});
+						// 兜底：按配置的延迟 + 时长算出的时刻再触发一次（animationend 漏掉也能播）
+						const endMs =
+							(curtainEndSeconds(this) + 0.2) * 1000 || 4200;
+						this.timers.push(setTimeout(this.startVideos, endMs));
 					} else {
 						this.startVideos();
 					}
 
-					// ② 滚动淡出
+					// 滚动淡出：先显式恢复可见，且不在挂载瞬间做判断（避免切换页面时被误隐藏）
+					this.style.opacity = "1";
+					this.style.visibility = "visible";
 					if (reduced) return;
 					this.ticking = false;
 					this.onScroll = () => {
@@ -222,12 +265,13 @@ const heroEnabled = liveReportConfig.hero.enable;
 							this.style.visibility = ratio >= 1 ? "hidden" : "visible";
 						});
 					};
-					this.onScroll();
 					window.addEventListener("scroll", this.onScroll, { passive: true });
 				}
 
 				disconnectedCallback() {
 					window.removeEventListener("scroll", this.onScroll);
+					for (const timer of this.timers || []) clearTimeout(timer);
+					for (const off of this.gestures || []) off();
 					if (this.videos) {
 						for (const video of this.videos) video.pause();
 					}
@@ -237,6 +281,14 @@ const heroEnabled = liveReportConfig.hero.enable;
 					}
 				}
 			}
+
+			/** 从 hero 根节点的 CSS 变量里读取帘子结束时刻（秒） */
+			function curtainEndSeconds(el) {
+				const raw = getComputedStyle(el).getPropertyValue("--curtain-end");
+				const value = Number.parseFloat(raw);
+				return Number.isFinite(value) ? value : 4;
+			}
+
 			customElements.define("live-hero-fade", LiveHeroFade);
 		})();
 	</script>

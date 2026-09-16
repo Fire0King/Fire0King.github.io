@@ -22,14 +22,10 @@
 		"retentionDays": 0
 	},
 	"hero": {
-		"_readme": "整屏开场 hero，默认值复刻 https://github.com/Electr0ME/P3RE-Web-Effect ：蓝波浪帘扫下 → 居中开场文字 3 秒后淡出 → 右侧 logo 5 秒淡入。waveColor 填 \"theme\" 可改为跟随站点主色；backgroundVideos 填 public 下的 mp4 路径即可完全复刻参考里的视频背景（播放顺序：第一个播完接第二个循环），留空则用内置的 CSS 动画背景。",
+		"_readme": "整屏开场 hero，结构与时序复刻 https://github.com/Electr0ME/P3RE-Web-Effect ：波浪帘扫下退场 → 小字（数据更新时间）淡入 → 可选品牌图淡入。大字为站点标题、常驻；小字固定显示数据更新信息，不需要在这里配。waveColor 只影响帘子底色（波浪图片自带 #469ce5 颜色），填 \"theme\" 可让帘子跟随站点主色。backgroundVideos 用 public 下的视频（第 1 段播完接第 2 段循环），留空则用内置 CSS 动画背景。",
 		"enable": true,
-		"title": "Memento Mori",
-		"introLines": [
-			"Remember, You Will Die.",
-			"Time never waits.",
-			"It delivers all equally to the same end."
-		],
+		"title": "千宝观测站",
+		"introLines": [],
 		"waveColor": "#469ce5",
 		"logo": "",
 		"backgroundVideos": [
