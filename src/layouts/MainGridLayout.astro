@@ -47,6 +47,11 @@ interface Props {
 		minutes?: number;
 	};
 	heading?: string;
+	/**
+	 * 页面级 hero：首屏整屏留给壁纸与 hero 图层，内容下滑才出现（与首页 hero 同一套机制）。
+	 * 页面通过 <X slot="hero"> 提供铺满整屏的 hero 图层（背景/波浪/大标题等）。
+	 */
+	heroPage?: boolean;
 }
 
 const backgroundImages = getBackgroundImages();
@@ -66,6 +71,7 @@ const {
 	encrypted = false,
 	bannerPostMeta,
 	heading,
+	heroPage = false,
 } = Astro.props;
 
 const isHomePageCheck = isHomePage(Astro.url.pathname);
@@ -98,10 +104,13 @@ const {
 <slot slot="head" name="head" />
 <HeaderTopRow navbarMode={navbarMode} navbarWidthFull={navbarWidthFull} />
 
-<WallpaperSection state={banner} backgroundImages={backgroundImages} title={title} bannerPostMeta={bannerPostMeta} />
+<WallpaperSection state={banner} backgroundImages={backgroundImages} title={title} bannerPostMeta={bannerPostMeta}>
+    <!-- 页面级 hero 图层：透传给壁纸层（整屏固定层），保证与首页 hero 一样铺满视口 -->
+    <div slot="hero" class="contents"><slot name="hero" /></div>
+</WallpaperSection>
 
 <!-- Main content -->
-<div id="content-panel" class="content-panel absolute w-full z-30 pointer-events-none">
+<div id="content-panel" class="content-panel absolute w-full z-30 pointer-events-none" data-hero-page={heroPage ? "" : undefined}>
     <!-- The pointer-events-none here prevent blocking the click event of the TOC -->
     <div id="content-panel-inner" class="relative w-full xl:w-[92vw] max-w-(--page-width) mx-auto pointer-events-auto" style={gridColumnStyle}>
         {/* 列几何唯一真源 = computeGridColumns()，SSR 写在父级 #content-panel-inner 上

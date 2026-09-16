@@ -13,8 +13,8 @@ scripts/live-data/collect.mjs        # 抓取脚本（状态机：开播/下播/
 scripts/live-data/verify-report-utils.mjs  # 页面数据逻辑自检（无需构建）
 src/data/live/streams.json           # 直播场次数据（含正在直播的场次）
 src/data/live/followers.json         # 粉丝每日快照
-src/pages/live.astro                 # 页面
-src/components/pages/live/LiveCover.astro   # 封面（P3R 风格开场：波浪帘 + 开场文字）
+src/pages/live.astro                 # 页面（heroPage：首屏留给 hero，数据下滑才出现）
+src/components/pages/live/LiveHero.astro    # 整屏 hero（P3R 风格开场：波浪帘 + 开场文字 + 下滑提示）
 src/components/pages/live/*.svelte   # 月历 / 柱状图 / 统计卡片
 src/utils/live-report-utils.ts       # 纯计算工具（可被客户端组件复用）
 src/utils/live-report-data.ts        # 数据装载（构建时读取 JSON + 合并手动补录）

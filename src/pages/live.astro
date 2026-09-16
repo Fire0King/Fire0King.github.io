@@ -1,6 +1,6 @@
 ---
 import { Icon } from "astro-icon/components";
-import LiveCover from "@/components/pages/live/LiveCover.astro";
+import LiveHero from "@/components/pages/live/LiveHero.astro";
 import LiveReport from "@/components/pages/live/LiveReport.svelte";
 import {
 	enabledLivePlatforms,
@@ -76,16 +76,17 @@ const coverEyebrow = enabledLivePlatforms
 	.join(" · ");
 ---
 
-<MainGridLayout title={title} description={description}>
-	<div class="flex w-full flex-col gap-4">
-		<!-- 封面：壁纸底图 + P3R 风格波浪 + 大标题 -->
-		<LiveCover
-			{title}
-			subtitle={description}
-			meta={metaLine}
-			eyebrow={coverEyebrow}
-		/>
+<MainGridLayout heroPage title={title} description={description}>
+	<!-- 整屏 hero：与首页一样铺满首屏，P3R 风格波浪作为背景，下滑才看到数据 -->
+	<LiveHero
+		slot="hero"
+		{title}
+		quote={description}
+		meta={metaLine}
+		eyebrow={coverEyebrow}
+	/>
 
+	<div class="flex w-full flex-col gap-4">
 		{
 			!isLiveReportConfigured ? (
 				/* 未配置数据源 */
@@ -128,4 +129,39 @@ const coverEyebrow = enabledLivePlatforms
 			)
 		}
 	</div>
+
+	<!--
+		hero 的滚动淡出：hero 与壁纸同为固定层，下滑后若不淡出会浮在数据区后面。
+		用自定义元素承载，connectedCallback 在每次进入本页（含 Swup 切换）时重新执行；
+		滚动监听用 rAF 节流，只写 opacity。定义放在 head，保证先于元素升级。
+	-->
+	<script slot="head" is:inline>
+		(function () {
+			if (customElements.get("live-hero-fade")) return;
+			class LiveHeroFade extends HTMLElement {
+				connectedCallback() {
+					if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+					this.ticking = false;
+					this.onScroll = () => {
+						if (this.ticking) return;
+						this.ticking = true;
+						requestAnimationFrame(() => {
+							this.ticking = false;
+							const vh = window.innerHeight || 1;
+							// 首屏 55% 处基本淡完，之后不再干扰数据区
+							const ratio = Math.min(1, Math.max(0, window.scrollY / (vh * 0.55)));
+							this.style.opacity = String(1 - ratio);
+							this.style.visibility = ratio >= 1 ? "hidden" : "visible";
+						});
+					};
+					this.onScroll();
+					window.addEventListener("scroll", this.onScroll, { passive: true });
+				}
+				disconnectedCallback() {
+					window.removeEventListener("scroll", this.onScroll);
+				}
+			}
+			customElements.define("live-hero-fade", LiveHeroFade);
+		})();
+	</script>
 </MainGridLayout>

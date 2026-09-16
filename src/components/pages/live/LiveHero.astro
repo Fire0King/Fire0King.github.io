@@ -1,0 +1,393 @@
+---
+/**
+ * 直播数据页面 hero —— Persona 3 Reload 官网开场特效的移植版，铺满整个首屏
+ *
+ * 参考（https://github.com/Electr0ME/P3RE-Web-Effect）的构成与时序：
+ *   1. 一叠波浪组成的帘子从画面上方整体扫下，盖过整屏
+ *   2. 帘子后面是背景画面
+ *   3. 居中开场文字先出现，几秒后引文淡出
+ *   4. 品牌标识最后淡入
+ *
+ * 本实现由页面通过 <LiveHero slot="hero" /> 传给 MainGridLayout，
+ * 最终渲染进固定的全屏壁纸层（#wallpaper-wrapper），因此：
+ *   · 与首页 hero 一样铺满整个视口（不受内容栏宽度/侧栏影响）
+ *   · 内容区被 --content-top:100vh 推到首屏之下，下滑才看到数据
+ * 颜色跟随站点主色，适配亮/暗色；全部为纯 CSS 动画 + 一段滚动淡出脚本，
+ * 偏好"减少动效"时降级为静态 hero。
+ */
+
+interface Props {
+	/** 主标题（常驻） */
+	title: string;
+	/** 开场引文（按参考的 centertext 时序淡出） */
+	quote?: string;
+	/** 底部信息行（数据更新于 / 数据范围等），帘子过后淡入 */
+	meta?: string;
+	/** 标题上方的小字（例如 BILIBILI · DOUYIN） */
+	eyebrow?: string;
+}
+
+const { title, quote, meta, eyebrow } = Astro.props;
+
+/** 帘子浪尖：5 层；底部常驻波浪：4 层 */
+const CURTAIN_LAYERS = [1, 2, 3, 4, 5];
+const WAVE_LAYERS = [1, 2, 3, 4];
+/** 浪脊路径（1440×140，preserveAspectRatio=none 拉伸铺满） */
+const WAVE_PATH =
+	"M0,78 C110,34 230,110 350,74 C470,38 590,116 720,78 C850,40 970,104 1090,70 C1210,36 1330,92 1440,62 L1440,140 L0,140 Z";
+---
+
+<live-hero-fade class="live-hero">
+	<!-- 压暗 + 主题色染色：主题在全屏 hero 的非首页会隐藏自带 dim，这里补上，保证白字可读 -->
+	<div class="live-hero-scrim" aria-hidden="true"></div>
+
+	<!-- 开场文字 -->
+	<div class="live-hero-body">
+		{eyebrow && <p class="live-hero-eyebrow">{eyebrow}</p>}
+		<p class="live-hero-title">{title}</p>
+		{quote && <p class="live-hero-quote">{quote}</p>}
+		{meta && <p class="live-hero-meta">{meta}</p>}
+	</div>
+
+	<!-- 下滑提示（数据在下面） -->
+	<div class="live-hero-scroll" aria-hidden="true">
+		<span class="live-hero-scroll-text">SCROLL</span>
+		<svg class="live-hero-scroll-icon" viewBox="0 0 24 24" fill="none">
+			<path
+				d="M6 9.5 12 15.5 18 9.5"
+				stroke="currentColor"
+				stroke-width="1.8"
+				stroke-linecap="round"
+				stroke-linejoin="round"></path>
+		</svg>
+	</div>
+
+	<!-- 常驻波浪（底部，缓慢浮动） -->
+	<div class="live-hero-waves" aria-hidden="true">
+		{
+			WAVE_LAYERS.map((layer) => (
+				<svg
+					class={`live-hero-wave wave-${layer}`}
+					viewBox="0 0 1440 140"
+					preserveAspectRatio="none"
+				>
+					<path d={WAVE_PATH} />
+				</svg>
+			))
+		}
+	</div>
+
+	<!-- 开场帘子：整块波浪自上而下扫过整屏 -->
+	<div class="live-hero-curtain" aria-hidden="true">
+		<span class="live-hero-curtain-fill"></span>
+		{
+			CURTAIN_LAYERS.map((layer) => (
+				<svg
+					class={`live-hero-curtain-wave wave-${layer}`}
+					viewBox="0 0 1440 140"
+					preserveAspectRatio="none"
+				>
+					<path d={WAVE_PATH} />
+				</svg>
+			))
+		}
+	</div>
+</live-hero-fade>
+
+<style>
+	.live-hero {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+	}
+
+	/* ── 压暗 + 主题色染色 ───────────────────────────── */
+	.live-hero-scrim {
+		position: absolute;
+		inset: 0;
+		z-index: 1;
+		background:
+			radial-gradient(
+				ellipse at 50% 45%,
+				rgba(0, 0, 0, 0.12) 0%,
+				rgba(0, 0, 0, 0.5) 78%
+			),
+			linear-gradient(
+				to bottom,
+				rgba(0, 0, 0, 0.38) 0%,
+				rgba(0, 0, 0, 0.58) 100%
+			),
+			color-mix(in oklab, var(--primary) 26%, transparent);
+	}
+
+	/* ── 开场文字 ────────────────────────────────────── */
+	.live-hero-body {
+		position: relative;
+		z-index: 4;
+		max-width: 52rem;
+		padding: 0 1.5rem 3rem;
+		text-align: center;
+		color: #fff;
+		animation: live-hero-text-in 1s ease-out 0.15s both;
+	}
+
+	@keyframes live-hero-text-in {
+		from {
+			opacity: 0;
+			transform: translateY(16px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.live-hero-eyebrow {
+		margin-bottom: 0.9rem;
+		font-size: 0.72rem;
+		font-weight: 700;
+		letter-spacing: 0.34em;
+		opacity: 0.88;
+		text-transform: uppercase;
+	}
+
+	.live-hero-title {
+		font-size: clamp(2.4rem, 9vw, 4.6rem);
+		font-weight: 800;
+		line-height: 1.05;
+		letter-spacing: 0.02em;
+		text-shadow: 0 4px 34px rgba(0, 0, 0, 0.58);
+	}
+
+	/* 开场引文：按参考的 centertext 时序淡出 */
+	.live-hero-quote {
+		margin-top: 1.1rem;
+		font-size: 0.95rem;
+		line-height: 1.75;
+		opacity: 0.92;
+		animation: live-hero-quote-out 1.4s ease-in 3.8s forwards;
+	}
+
+	@keyframes live-hero-quote-out {
+		to {
+			opacity: 0;
+		}
+	}
+
+	/* 数据信息行：帘子过后淡入（对应参考里 logo 最后出现的位置） */
+	.live-hero-meta {
+		margin-top: 1.2rem;
+		font-size: 0.72rem;
+		letter-spacing: 0.06em;
+		opacity: 0;
+		animation: live-hero-fade-in 1s ease-out 2.6s forwards;
+	}
+
+	@keyframes live-hero-fade-in {
+		to {
+			opacity: 0.78;
+		}
+	}
+
+	/* ── 下滑提示 ────────────────────────────────────── */
+	.live-hero-scroll {
+		position: absolute;
+		bottom: 1.6rem;
+		left: 50%;
+		z-index: 5;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.2rem;
+		color: #fff;
+		opacity: 0;
+		transform: translateX(-50%);
+		animation: live-hero-fade-in 1s ease-out 3.2s forwards;
+	}
+
+	.live-hero-scroll-text {
+		font-size: 0.6rem;
+		font-weight: 700;
+		letter-spacing: 0.3em;
+		opacity: 0.75;
+	}
+
+	.live-hero-scroll-icon {
+		width: 1.5rem;
+		height: 1.5rem;
+		opacity: 0.85;
+		animation: live-hero-scroll-bob 1.8s ease-in-out infinite;
+	}
+
+	@keyframes live-hero-scroll-bob {
+		50% {
+			transform: translateY(5px);
+		}
+	}
+
+	/* ── 底部常驻波浪 ─────────────────────────────────── */
+	.live-hero-waves {
+		position: absolute;
+		right: 0;
+		bottom: -1px;
+		left: 0;
+		z-index: 3;
+		height: 7rem;
+		pointer-events: none;
+		opacity: 0;
+		animation: live-hero-fade-in 1.2s ease-out 2.3s forwards;
+	}
+
+	.live-hero-wave {
+		position: absolute;
+		bottom: 0;
+		left: -2%;
+		width: 104%;
+		height: 100%;
+		fill: var(--primary);
+		will-change: transform;
+	}
+
+	.live-hero-wave.wave-1 {
+		opacity: 0.2;
+		--wave-bob: 16px;
+		animation: live-wave-bob 5.2s ease-in-out infinite;
+	}
+
+	.live-hero-wave.wave-2 {
+		opacity: 0.32;
+		--wave-bob: 11px;
+		animation: live-wave-bob 4.4s ease-in-out infinite;
+	}
+
+	.live-hero-wave.wave-3 {
+		opacity: 0.48;
+		--wave-bob: 7px;
+		animation: live-wave-bob 3.6s ease-in-out infinite;
+	}
+
+	.live-hero-wave.wave-4 {
+		opacity: 0.68;
+		--wave-bob: 4px;
+		animation: live-wave-bob 2.8s ease-in-out infinite;
+	}
+
+	@keyframes live-wave-bob {
+		50% {
+			transform: translateY(var(--wave-bob, 8px));
+		}
+	}
+
+	/* ── 开场帘子 ─────────────────────────────────────── */
+	.live-hero-curtain {
+		position: absolute;
+		top: 0;
+		right: 0;
+		left: 0;
+		z-index: 6;
+		height: 130%;
+		pointer-events: none;
+		will-change: transform;
+		animation: live-hero-curtain-sweep 1.8s cubic-bezier(0.42, 0, 0.22, 1) 0.45s
+			both;
+	}
+
+	@keyframes live-hero-curtain-sweep {
+		from {
+			transform: translateY(-100%);
+		}
+		to {
+			transform: translateY(100%);
+		}
+	}
+
+	.live-hero-curtain-fill {
+		position: absolute;
+		inset: 0 0 5rem 0;
+		background-color: var(--primary);
+	}
+
+	.live-hero-curtain-wave {
+		position: absolute;
+		left: -2%;
+		width: 104%;
+		height: 6rem;
+		fill: var(--primary);
+	}
+
+	.live-hero-curtain-wave.wave-1 {
+		bottom: -5.6rem;
+		opacity: 0.9;
+		--wave-bob: 12px;
+		animation: live-wave-bob 1.5s ease-in-out infinite;
+	}
+
+	.live-hero-curtain-wave.wave-2 {
+		bottom: -4.2rem;
+		opacity: 0.78;
+		--wave-bob: 9px;
+		animation: live-wave-bob 1.9s ease-in-out infinite;
+	}
+
+	.live-hero-curtain-wave.wave-3 {
+		bottom: -2.8rem;
+		opacity: 0.7;
+		--wave-bob: 7px;
+		animation: live-wave-bob 2.3s ease-in-out infinite;
+	}
+
+	.live-hero-curtain-wave.wave-4 {
+		bottom: -1.4rem;
+		opacity: 0.86;
+		--wave-bob: 5px;
+		animation: live-wave-bob 2.7s ease-in-out infinite;
+	}
+
+	.live-hero-curtain-wave.wave-5 {
+		bottom: -0.2rem;
+		opacity: 1;
+		--wave-bob: 2px;
+		animation: live-wave-bob 3.1s ease-in-out infinite;
+	}
+
+	@media (max-width: 767px) {
+		.live-hero-waves {
+			height: 5rem;
+		}
+
+		.live-hero-title {
+			font-size: clamp(2rem, 11vw, 2.8rem);
+		}
+	}
+
+	/* 减少动效：去掉帘子/浮动/淡出，保留静态 hero */
+	@media (prefers-reduced-motion: reduce) {
+		.live-hero-body,
+		.live-hero-quote,
+		.live-hero-meta,
+		.live-hero-scroll,
+		.live-hero-scroll-icon,
+		.live-hero-waves,
+		.live-hero-wave,
+		.live-hero-curtain-wave {
+			animation: none;
+		}
+
+		.live-hero-quote,
+		.live-hero-meta {
+			opacity: 0.85;
+		}
+
+		.live-hero-scroll,
+		.live-hero-waves {
+			opacity: 1;
+		}
+
+		.live-hero-curtain {
+			display: none;
+		}
+	}
+</style>
