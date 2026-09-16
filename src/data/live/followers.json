@@ -1,5 +1,17 @@
 {
-	"version": 1,
-	"updatedAt": null,
-	"series": {}
+  "version": 1,
+  "updatedAt": "2026-09-16T18:51:05+08:00",
+  "series": {
+    "bilibili": {
+      "name": "又千",
+      "total": 69386,
+      "snapshotAt": "2026-09-16T18:51:05+08:00",
+      "points": [
+        {
+          "date": "2026-09-16",
+          "total": 69386
+        }
+      ]
+    }
+  }
 }
