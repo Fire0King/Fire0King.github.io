@@ -361,25 +361,32 @@ const heroEnabled = liveReportConfig.hero.enable;
 						}
 
 						// 第 1 段（intro）播完接着播第 2 段（loop）并循环。
-						// 在 intro 快放完时就切（而不是等 ended），避免中间出现断帧。
+						// intro 在视觉上压着 loop（CSS 里写了 z-index），所以：
+						//   1) intro 快到结尾时先把 loop 起播（它在下面，看不见）；
+						//   2) loop 真的出帧了，才把 intro 收掉 —— 同一帧换幕，不闪不卡。
+						// 不能提前收掉 intro：loop 还没出帧的话会闪一下下面的动画背景；
+						// 也不能让 loop 一直可见：它暂停时会画出第 1 帧静止画面，把 intro 盖住。
 						if (intro && loop) {
+							let loopStarted = false;
 							let handedOff = false;
+							const startLoop = () => {
+								if (loopStarted) return;
+								loopStarted = true;
+								tryPlay(loop);
+							};
 							const handOff = () => {
 								if (handedOff) return;
+								// loop 还没真正出帧就别换，否则中间会空一下
+								if (loop.paused || loop.readyState < 2) return;
 								handedOff = true;
-								// 先让 loop 起来（DOM 里在后面，压住 intro），再收掉 intro，衔接更顺
-								tryPlay(loop);
-								this.timers.push(
-									setTimeout(() => {
-										intro.style.display = "none";
-									}, 180),
-								);
+								intro.style.display = "none";
 							};
+							loop.addEventListener("playing", handOff);
 							intro.addEventListener("ended", handOff, { once: true });
 							intro.addEventListener("timeupdate", () => {
 								const total = intro.duration;
 								if (!Number.isFinite(total)) return;
-								if (total - intro.currentTime <= 0.35) handOff();
+								if (total - intro.currentTime <= 0.35) startLoop();
 							});
 						}
 

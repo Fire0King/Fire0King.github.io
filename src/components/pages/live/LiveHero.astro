@@ -129,6 +129,7 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 			muted
 			playsinline
 			preload="auto"
+			loop={!hasLoopVideo}
 		>
 			{introSources.map((source) => (
 				<source src={source.src} type={source.type} />
@@ -279,7 +280,7 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 	.live-hero-white {
 		position: absolute;
 		inset: 0;
-		z-index: 3;
+		z-index: 4;
 		background-color: #ffffff;
 	}
 
@@ -291,6 +292,16 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+	}
+
+	/*
+		两段视频的叠放顺序必须写死：第 1 段（intro）在上面，第 2 段（loop）在下面。
+		同 z-index 时按 DOM 顺序画，而 loop 在后面 —— 它预加载好之后即使还是暂停状态，
+		浏览器也会把它的第 1 帧画出来，结果就是「暂停的 loop 静止帧盖住正在播的 intro」，
+		看上去就是一张不会动的图片。所以 intro 要更高一层，等它播完了再整帧露出 loop。
+	*/
+	.live-hero-video[data-hero-video="intro"] {
+		z-index: 3;
 	}
 
 	/*
