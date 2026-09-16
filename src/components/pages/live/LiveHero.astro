@@ -82,11 +82,13 @@ const waveColor =
 const curtainEnd = hero.curtainDelaySeconds + hero.curtainDurationSeconds;
 /** 背景动画入场时刻 = 帘子结束 + 白底停留时间 */
 const videoInDelay = curtainEnd + hero.holdSeconds;
+/** 文字淡出：比动画入场早 1s 开始、0.7s 淡完，即动画入场时文字已消失 */
+const textOutDelay = Math.max(0, videoInDelay - 1);
 /** 预计算：避免在模板的 if 条件里直接用大于号（容易踩到 Astro 解析坑） */
 const hasIntroLines = hero.introLines.length > 0;
 const hasSmallLine = Boolean(smallLine?.trim());
 const rootClass = hasVideo ? "live-hero" : "live-hero no-video";
-const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDelaySeconds}s; --curtain-duration: ${hero.curtainDurationSeconds}s; --curtain-end: ${curtainEnd}s; --video-in-delay: ${videoInDelay}s;`;
+const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDelaySeconds}s; --curtain-duration: ${hero.curtainDurationSeconds}s; --curtain-end: ${curtainEnd}s; --video-in-delay: ${videoInDelay}s; --text-out-delay: ${textOutDelay}s;`;
 ---
 
 <live-hero-fade class={rootClass} data-hero style={rootStyle}>
@@ -319,17 +321,16 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 		z-index: 5;
 		width: min(92%, 48rem);
 		text-align: center;
-		color: inherit;
+		color: #0b1020;
 		transform: translate(-50%, -50%);
-		animation: live-hero-text-switch 1s ease-out var(--video-in-delay, 7s)
-			forwards;
+		/* 动画入场之前先淡出消失（白底阶段展示几秒 → 淡出 → 动画入场） */
+		animation: live-hero-text-out 0.7s ease-in var(--text-out-delay, 6s) forwards;
 	}
 
-	/* 动画入场时文字由深色（白底上）转为白色（视频/压暗上） */
-	@keyframes live-hero-text-switch {
+	@keyframes live-hero-text-out {
 		to {
-			color: #ffffff;
-			text-shadow: 0 4px 30px rgba(0, 0, 0, 0.55);
+			opacity: 0;
+			visibility: hidden;
 		}
 	}
 

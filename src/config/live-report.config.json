@@ -34,7 +34,7 @@
 		],
 		"curtainDelaySeconds": 1,
 		"curtainDurationSeconds": 3,
-		"holdSeconds": 3
+		"holdSeconds": 4
 	},
 	"manualRecords": []
 }
