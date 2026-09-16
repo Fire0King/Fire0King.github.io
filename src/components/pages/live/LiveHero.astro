@@ -7,13 +7,18 @@
  * 真正的最上层。不能放在壁纸层（#wallpaper-wrapper）里：那一层是 z-index -1 的独立
  * 层叠上下文，放进去的东西永远盖不到导航栏上面。
  *
- * 时序（默认值；帘子参数与 P3RE-Web-Effect 一致，后续阶段按本页需要扩展）：
+ * 时序（以默认配置为例；帘子参数与 P3RE-Web-Effect 一致）：
  *   0s         蓝色波浪帘盖住整屏（浪尖为自备素材，内联 SVG）
- *   1s→4s      帘子整体向下退场，露出白底 + 标题/数据信息（此时文字为深色）
- *   4s→7s      白底与文字停留（hero.holdSeconds，默认 3s）
- *   7s         背景动画（视频）淡入并循环、压暗淡入、底部中间出现下拉按钮
+ *   1s→4s      帘子整体向下退场，露出白底 + 标题（文字为深色）
+ *   3.5s       小字（数据更新信息）开始淡入，0.8s 淡完（帘子落完前 0.5s 起）
+ *   4.8s       文字整体淡出（小字出现后停留 hero.holdSeconds，默认 0.5s），0.7s 淡完
+ *   5.8s       背景视频直接接上（不淡入：素材开头本身就是纯白），播完切下一段循环；
+ *              底部中间的下拉按钮同时出现
  *   点击按钮    平滑滚动到下方数据区
  *   向下滚动     超过约半屏时 hero 渐隐（可逆）：上滑回来会重新显示，循环动画继续
+ *
+ * 白底与视频的交接由脚本控制（不是 CSS 动画）：白底压在视频之上，视频真的出帧后
+ * 整帧收掉白底 —— 详见 live.astro 里的 startVideos / dropWhite。
  *
  * 波浪用「内联 SVG」而不是 <img>：主题有全局规则
  * `html[data-wallpaper-mode="fullscreen"] #wallpaper-wrapper img { width:100%!important;
@@ -116,7 +121,7 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 	<!-- 白底：帘子退场后先呈现它 + 文字，停留几秒再让动画入场 -->
 	<div class="live-hero-white" aria-hidden="true"></div>
 
-	<!-- 背景动画（视频）：白底之后淡入并循环 -->
+	<!-- 背景动画（视频）：白底之后露出来（不做淡入，见下面 .live-hero-white 的说明） -->
 	{hasIntroVideo && (
 		<video
 			class="live-hero-video"
@@ -145,10 +150,7 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 		</video>
 	)}
 
-	<!-- 压暗：动画入场后保证白字可读 -->
-	<div class="live-hero-scrim" aria-hidden="true"></div>
-
-	<!-- 文字：大字（站点标题）+ 小字（数据更新信息），动画入场时由深色转白 -->
+	<!-- 文字：大字（站点标题）+ 小字（数据更新信息） -->
 	<div class="live-hero-center">
 		<p class="live-hero-center-title">{hero.title}</p>
 		{hasIntroLines && (
@@ -266,74 +268,39 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 		}
 	}
 
-	/* ── 白底阶段 ────────────────────────────────────── */
+	/*
+		── 白底阶段 ─────────────────────────────────────
+		白底压在背景视频之上，一直盖到「视频真的出帧」那一刻，由脚本整帧收掉。
+		不做淡出、视频也不做淡入：
+		  · 素材开头本身就是纯白（fv_movie1 前 0.85s 都是白帧），收掉白底的那一帧
+		    和视频的第一帧是同一种白，等于无缝换幕；
+		  · 半透明叠底会露出下面的动画背景，观感就是"蒙了一层灰"，所以两边都不要渐变。
+	*/
 	.live-hero-white {
 		position: absolute;
 		inset: 0;
-		z-index: 2;
+		z-index: 3;
 		background-color: #ffffff;
-		animation: live-hero-white-out 1s ease-in-out var(--video-in-delay, 7s)
-			forwards;
-	}
-
-	@keyframes live-hero-white-out {
-		to {
-			opacity: 0;
-		}
 	}
 
 	/* ── 背景视频 ────────────────────────────────────── */
 	.live-hero-video {
 		position: absolute;
 		inset: 0;
-		z-index: 3;
+		z-index: 2;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
-		opacity: 0;
-		animation: live-hero-video-in 1s ease-out var(--video-in-delay, 7s) forwards;
-	}
-
-	@keyframes live-hero-video-in {
-		to {
-			opacity: 1;
-		}
 	}
 
 	/*
 		视频不可用（解码失败 / 自动播放被拦 / 低电量模式不解码）时，脚本会打上
-		data-hero-state="fallback"：收起视频与压暗层，露出上面那层内置动画背景，
-		保证任何情况下屏幕上都有动画在跑，而不是一片黑或者一张静止首帧。
+		data-hero-state="fallback"：白底与视频一起收起，露出下面那层内置动画背景，
+		保证任何情况下屏幕上都有动画在跑，而不是一片黑或者一直白着。
 	*/
 	live-hero-fade[data-hero-state="fallback"] .live-hero-video,
-	live-hero-fade[data-hero-state="fallback"] .live-hero-scrim {
+	live-hero-fade[data-hero-state="fallback"] .live-hero-white {
 		display: none;
-	}
-
-	/* ── 压暗层（随动画一起入场）──────────────────────── */
-	.live-hero-scrim {
-		position: absolute;
-		inset: 0;
-		z-index: 4;
-		opacity: 0;
-		background:
-			radial-gradient(
-				ellipse at 50% 45%,
-				rgba(0, 0, 0, 0.05) 0%,
-				rgba(0, 0, 0, 0.42) 78%
-			),
-			linear-gradient(
-				to bottom,
-				rgba(0, 0, 0, 0.24) 0%,
-				rgba(0, 0, 0, 0.4) 100%
-			);
-		animation: live-hero-scrim-in 1s ease-out var(--video-in-delay, 7s) forwards;
-	}
-
-	@keyframes live-hero-scrim-in {
-		to {
-			opacity: 1;
-		}
 	}
 
 	/* ── 文字 ────────────────────────────────────────── */
@@ -585,7 +552,7 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 		}
 	}
 
-	/* 减少动效：不做帘子/切换/淡入淡出，直接呈现「白底 + 深色文字 + 按钮」 */
+	/* 减少动效：不做帘子/切换，直接呈现「白底 + 深色文字 + 按钮」（脚本也不再收白底） */
 	@media (prefers-reduced-motion: reduce) {
 		.live-hero-curtain,
 		.live-hero-curtain-wave,
@@ -599,13 +566,8 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 			display: none;
 		}
 
-		.live-hero-video,
-		.live-hero-scrim {
+		.live-hero-video {
 			display: none;
-		}
-
-		.live-hero-white {
-			animation: none;
 		}
 
 		.live-hero-center {

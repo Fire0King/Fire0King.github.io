@@ -138,8 +138,10 @@ npx tsx scripts/live-data/verify-report-utils.mjs
 ### 1.7 直播页开场 hero（复刻 P3RE 官网开场）
 
 `/live/` 的首屏是整屏开场，复刻 [Electr0ME/P3RE-Web-Effect](https://github.com/Electr0ME/P3RE-Web-Effect)：
-蓝波浪帘从整屏盖住状态向下退场 → 居中开场文字 3s 起淡出 → 右侧品牌图 5s 起淡入；
-数据放在首屏之下，下滑才看到。配置在 `live-report.config.json` 的 `hero` 段：
+蓝波浪帘从整屏盖住状态向下退场 → 白底上显示居中开场文字（3.5s 起小字淡入、4.8s 起整体淡出，
+时长由 `hero.holdSeconds` 调节）→ 5.8s 背景动画**直接**接上（不做淡入，见下）→
+右侧品牌图与底部下拉按钮同时出现；数据放在首屏之下，下滑才看到。配置在
+`live-report.config.json` 的 `hero` 段：
 
 | 字段 | 说明 |
 | --- | --- |
@@ -147,12 +149,19 @@ npx tsx scripts/live-data/verify-report-utils.mjs
 | `title` / `introLines` | 居中开场文字；默认就是参考仓库原文（Memento Mori + 三行引文） |
 | `waveColor` | 波浪颜色，默认参考的 P3R 蓝 `#469ce5`；填 `theme` 可跟随站点主色 |
 | `logo` | 右侧淡入的品牌图（public 下的路径），留空则不显示 |
-| `backgroundVideos` | 背景视频（public 下的路径数组）：第 1 段在帘子扫完后播放、播完切第 2 段循环；留空则用内置 CSS 动画背景 |
+| `backgroundVideos` | 背景视频（public 下的路径数组）：第 1 段在 5.8s（文字淡完之后）**直接**接上、播完切第 2 段循环；留空则用内置 CSS 动画背景 |
 | `curtainDelaySeconds` / `curtainDurationSeconds` | 帘子的延迟与时长，默认 `1` / `3`（参考值） |
 
 自带素材：`public/videos/live-hero/fv_movie1.webm`（374 KB）与 `fv_movie2.webm`（378 KB），
 换成自己的视频只要替换文件或改 `backgroundVideos` 即可。视频未配置或加载失败时，
 会自动露出内置的 CSS 动画背景（深蓝底 + 漂移光带），不会出现空白首屏。
+
+**白底 → 动画的交接为什么不做淡入淡出**：`fv_movie1` 自己开头 0.85s 就是整屏纯白
+（`ffprobe` 量出来 YAVG=235，即 TV 范围的白），所以做法是「白底一直压在视频上面，
+等视频真的出帧（`playing`）再整帧收掉」——换幕是无缝的**直接展示**。反过来说，
+如果给视频加 `opacity` 淡入，它就会半透明地叠在白底/深色动画背景上，看着像
+**蒙了一层灰**；同理，之前那一层压暗用的 `.live-hero-scrim`（黑 28%~56%）也一并删掉了，
+它会把整个 P3R 画面压灰压暗。
 
 #### 1.7.1 hero 渲染在哪一层（为什么能盖住导航栏）
 

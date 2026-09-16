@@ -145,9 +145,10 @@ const heroEnabled = liveReportConfig.hero.enable;
 
 	<!--
 		hero 的开场时序 + 滚动淡出：
-		  · 帘子退场后播放第 1 段背景视频，播完隐藏它并切到第 2 段循环（同参考的 video1/video2）
-		    触发同时挂了 animationend 与定时器兜底 —— 只靠 animationend 的话，一旦动画
-		    已经结束/被跳过（Swup 切换、减少动效、样式晚到），事件不再触发，视频就永远不播
+		  · 文字淡完后（--video-in-delay，默认 5.8s）播放第 1 段背景视频，播完切到第 2 段循环
+		    （同参考的 video1/video2）。视频只从这一刻才开播 —— 素材开头本身是纯白，
+		    正好接上白底，换幕是无缝的"直接展示"，不做任何淡入
+		  · 白底压在视频之上，等视频真的出帧（playing）再整帧收掉；1.2s 兜底避免一直白着
 		  · 自动播放被拦截时，在首次用户手势（点按/按键/滚动）后重试
 		  · 滚动时 hero 整体淡出；挂载瞬间不做淡出判断，避免切换页面时被误隐藏
 		  · hero 渲染在 MainGridLayout 的 #page-hero-layer（fixed、z-index 1090，盖住导航栏），
@@ -167,7 +168,6 @@ const heroEnabled = liveReportConfig.hero.enable;
 
 					const intro = this.querySelector('[data-hero-video="intro"]');
 					const loop = this.querySelector('[data-hero-video="loop"]');
-					const curtain = this.querySelector("[data-hero-curtain]");
 					this.videos = [intro, loop].filter(Boolean);
 					this.timers = [];
 					this.gestures = [];
@@ -284,20 +284,41 @@ const heroEnabled = liveReportConfig.hero.enable;
 								tryPlay(video);
 							}
 						});
-						// 真的播起来了 → 撤销「兜底」状态，让视频层重新显示
+						// 真的播起来了 → 撤销「兜底」状态让视频层显示，并整帧收掉白底
+						// （素材开头本来就是白的，交接处看不出；early/late 都无所谓）
 						video.addEventListener("playing", () => {
 							this.setAttribute("data-hero-state", "playing");
+							dropWhite();
 						});
 					}
 
+					/*
+						白底 → 背景视频的交接：
+						素材开头本身就是纯白（fv_movie1 前 0.85s 全是白帧），所以两边都不做
+						渐变 —— 白底一直盖在视频上面，等视频真的出帧了再整帧收掉白底。
+						这样换幕是"直接展示"，也不会因为半透明叠底而露出下面的深色背景
+						（那正是之前看着蒙了一层灰的原因）。
+					*/
+					const white = this.querySelector(".live-hero-white");
+					const dropWhite = () => {
+						if (white) white.style.display = "none";
+					};
+
+					/**
+					 * 背景动画入场：默认 5.8s（--video-in-delay，文字淡完之后）。
+					 * 视频也从这一刻才开始播，它自己的白开头正好接上白底。
+					 */
 					this.startVideos = () => {
 						if (this.videosStarted) return;
 						this.videosStarted = true;
 						const first = currentVideo();
-						if (!first) return;
-						tryPlay(first);
+						if (!first) {
+							// 没配视频：直接露出内置动画背景
+							dropWhite();
+							return;
+						}
 
-						// 第 1 段（intro）播完后接着播第 2 段（loop）并循环。
+						// 第 1 段（intro）播完接着播第 2 段（loop）并循环。
 						// 在 intro 快放完时就切（而不是等 ended），避免中间出现断帧。
 						if (intro && loop) {
 							let handedOff = false;
@@ -320,13 +341,13 @@ const heroEnabled = liveReportConfig.hero.enable;
 							});
 						}
 
-						// 兜底：入场时刻之后仍在暂停（自动播放被拦 / 低电量模式 / 解码不动）
-						// → 收起视频层，露出内置动画背景，页面上始终有东西在动。
+						// 兜底：1.2s 还没 playing（自动播放被拦、加载慢）也收掉白底，
+						// 免得整屏一直白着（playing 监听在上面统一处理）
+						this.timers.push(setTimeout(dropWhite, 1200));
+						tryPlay(first);
+
+						// 再过 1.2s 仍未播起来 → 白底/视频一起收起，走内置动画背景。
 						// 之后一旦通过用户手势播起来，playing 事件会把状态改回来。
-						const idleCheckDelay = Math.max(
-							0,
-							(curtainEndSeconds(this) + 1.6) * 1000,
-						);
 						this.timers.push(
 							setTimeout(() => {
 								const current = currentVideo();
@@ -335,24 +356,26 @@ const heroEnabled = liveReportConfig.hero.enable;
 									current.paused &&
 									this.getAttribute("data-hero-state") !== "fallback"
 								) {
-									applyFallback("等待 1.6s 仍未能开始播放（多为自动播放被拦截）");
+									applyFallback(
+										"入场后 1.2s 仍未开始播放（多为自动播放被拦截）",
+									);
 								}
-							}, idleCheckDelay),
+							}, 1200),
 						);
 					};
 
-					if (curtain && !reduced) {
-						curtain.addEventListener("animationend", this.startVideos, {
-							once: true,
-						});
-						// 兜底：按配置的延迟 + 时长算出的时刻再触发一次（animationend 漏掉也能播）
-						const endMs =
-							(curtainEndSeconds(this) + 0.2) * 1000 || 4200;
-						this.timers.push(setTimeout(this.startVideos, endMs));
-					} else if (!reduced) {
-						this.startVideos();
+					// 减少动效时 CSS 已隐藏视频、白底与文字常驻，这里什么都不做
+					if (!reduced) {
+						this.timers.push(
+							setTimeout(
+								this.startVideos,
+								Math.max(
+									0,
+									cssSeconds(this, "--video-in-delay", 5.8) * 1000,
+								),
+							),
+						);
 					}
-					// 减少动效时 CSS 已把视频层 display:none，这里干脆不播，省流量
 
 					// 滚动淡出：先显式恢复可见，且不在挂载瞬间做判断（避免切换页面时被误隐藏）
 					this.style.opacity = "1";
@@ -436,18 +459,14 @@ const heroEnabled = liveReportConfig.hero.enable;
 					if (scrollBtn && this.onScrollClick) {
 						scrollBtn.removeEventListener("click", this.onScrollClick);
 					}
-					const curtain = this.querySelector("[data-hero-curtain]");
-					if (curtain && this.startVideos) {
-						curtain.removeEventListener("animationend", this.startVideos);
-					}
 				}
 			}
 
-			/** 从 hero 根节点的 CSS 变量里读取帘子结束时刻（秒） */
-			function curtainEndSeconds(el) {
-				const raw = getComputedStyle(el).getPropertyValue("--curtain-end");
+			/** 从 hero 根节点的 CSS 变量里读秒数（--video-in-delay 等） */
+			function cssSeconds(el, name, fallback) {
+				const raw = getComputedStyle(el).getPropertyValue(name);
 				const value = Number.parseFloat(raw);
-				return Number.isFinite(value) ? value : 4;
+				return Number.isFinite(value) ? value : fallback;
 			}
 
 			customElements.define("live-hero-fade", LiveHeroFade);
