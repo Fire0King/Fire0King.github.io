@@ -288,6 +288,7 @@ export const ko: Translation = {
 		"플랫폼별 일일 팔로워 증감을 막대 그래프로 표시",
 	[Key.liveReportFollowerTotal]: "현재 팔로워",
 	[Key.liveReportNetChange]: "기간 순증",
+	[Key.liveReportHeroButton]: "라이브 데이터 보기",
 	[Key.liveReportFollowerBaselineHint]:
 		"일일 증감을 표시하려면 최소 이틀치 기록이 필요합니다",
 	[Key.liveReportIncrease]: "증가",

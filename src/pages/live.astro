@@ -84,7 +84,7 @@ const heroEnabled = liveReportConfig.hero.enable;
 		/>
 	)}
 
-	<div class="flex w-full flex-col gap-4">
+	<div id="live-data" class="flex w-full flex-col gap-4">
 		<!-- 首屏之下的数据区表头：hero 是纯开场，页面身份与数据信息放这里 -->
 		<header class="card-base w-full px-4 sm:px-6 py-4">
 			<div class="flex flex-wrap items-baseline justify-between gap-2">
@@ -284,8 +284,10 @@ const heroEnabled = liveReportConfig.hero.enable;
 					this.style.visibility = "visible";
 					if (reduced) return;
 					this.ticking = false;
+					/** 单向：一旦滑过首屏就不再回到 hero（再次上滑只留默认壁纸） */
+					this.fadedOut = false;
 					this.onScroll = () => {
-						if (this.ticking) return;
+						if (this.fadedOut || this.ticking) return;
 						this.ticking = true;
 						requestAnimationFrame(() => {
 							this.ticking = false;
@@ -296,10 +298,37 @@ const heroEnabled = liveReportConfig.hero.enable;
 								Math.max(0, window.scrollY / (vh * 0.55)),
 							);
 							this.style.opacity = String(1 - ratio);
-							this.style.visibility = ratio >= 1 ? "hidden" : "visible";
+							if (ratio >= 1) {
+								this.fadedOut = true;
+								this.style.visibility = "hidden";
+								window.removeEventListener("scroll", this.onScroll);
+								for (const video of this.videos) video.pause();
+							} else {
+								this.style.visibility = "visible";
+							}
 						});
 					};
 					window.addEventListener("scroll", this.onScroll, { passive: true });
+
+					// 底部中间的下拉按钮：平滑滚动到数据区（点完就滑过首屏，hero 单向淡出）
+					const scrollBtn = this.querySelector("[data-hero-scroll]");
+					if (scrollBtn) {
+						this.onScrollClick = () => {
+							const target = document.getElementById("live-data");
+							if (target) {
+								target.scrollIntoView({
+									behavior: "smooth",
+									block: "start",
+								});
+							} else {
+								window.scrollTo({
+									top: window.innerHeight,
+									behavior: "smooth",
+								});
+							}
+						};
+						scrollBtn.addEventListener("click", this.onScrollClick);
+					}
 				}
 
 				disconnectedCallback() {
@@ -308,6 +337,10 @@ const heroEnabled = liveReportConfig.hero.enable;
 					for (const off of this.gestures || []) off();
 					if (this.videos) {
 						for (const video of this.videos) video.pause();
+					}
+					const scrollBtn = this.querySelector("[data-hero-scroll]");
+					if (scrollBtn && this.onScrollClick) {
+						scrollBtn.removeEventListener("click", this.onScrollClick);
 					}
 					const curtain = this.querySelector("[data-hero-curtain]");
 					if (curtain && this.startVideos) {

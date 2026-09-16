@@ -288,6 +288,7 @@ export const ja: Translation = {
 		"各プラットフォームのフォロワー日次増減を棒グラフで表示",
 	[Key.liveReportFollowerTotal]: "現在のフォロワー",
 	[Key.liveReportNetChange]: "期間内の純増",
+	[Key.liveReportHeroButton]: "配信データを見る",
 	[Key.liveReportFollowerBaselineHint]:
 		"日次の増減を表示するには 2 日以上の記録が必要です",
 	[Key.liveReportIncrease]: "増",

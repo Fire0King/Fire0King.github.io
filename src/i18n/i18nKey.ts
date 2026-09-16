@@ -280,6 +280,7 @@ enum I18nKey {
 	liveReportFollowerChartDesc = "liveReportFollowerChartDesc",
 	liveReportFollowerTotal = "liveReportFollowerTotal",
 	liveReportNetChange = "liveReportNetChange",
+	liveReportHeroButton = "liveReportHeroButton",
 	liveReportFollowerBaselineHint = "liveReportFollowerBaselineHint",
 	liveReportIncrease = "liveReportIncrease",
 	liveReportDecrease = "liveReportDecrease",

@@ -289,6 +289,7 @@ export const en: Translation = {
 		"Daily follower gains and losses for each platform",
 	[Key.liveReportFollowerTotal]: "Followers",
 	[Key.liveReportNetChange]: "Net change",
+	[Key.liveReportHeroButton]: "View live data",
 	[Key.liveReportFollowerBaselineHint]:
 		"At least two snapshots are needed to show daily changes",
 	[Key.liveReportIncrease]: "Gain",

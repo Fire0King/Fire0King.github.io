@@ -283,6 +283,7 @@ export const zh_CN: Translation = {
 	[Key.liveReportFollowerChartDesc]: "柱状图展示各平台每日粉丝的增减情况",
 	[Key.liveReportFollowerTotal]: "当前粉丝",
 	[Key.liveReportNetChange]: "区间净增",
+	[Key.liveReportHeroButton]: "查看直播数据",
 	[Key.liveReportFollowerBaselineHint]:
 		"还需要至少两天的快照数据，才能看出每日增减",
 	[Key.liveReportIncrease]: "增",

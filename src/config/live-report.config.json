@@ -33,7 +33,8 @@
 			"/videos/live-hero/fv_movie2.webm"
 		],
 		"curtainDelaySeconds": 1,
-		"curtainDurationSeconds": 3
+		"curtainDurationSeconds": 3,
+		"holdSeconds": 3
 	},
 	"manualRecords": []
 }

@@ -71,6 +71,7 @@ export const liveReportConfig: LiveReportConfig = {
 			: [],
 		curtainDelaySeconds: Number(raw.hero?.curtainDelaySeconds) || 1,
 		curtainDurationSeconds: Number(raw.hero?.curtainDurationSeconds) || 3,
+		holdSeconds: Number(raw.hero?.holdSeconds) || 3,
 	},
 	manualRecords: Array.isArray(raw.manualRecords) ? raw.manualRecords : [],
 };

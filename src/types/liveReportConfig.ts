@@ -85,6 +85,11 @@ export type LiveReportHeroConfig = {
 	curtainDelaySeconds: number;
 	/** 帘子下扫的时长（秒），参考仓库为 3 */
 	curtainDurationSeconds: number;
+	/**
+	 * 帘子退场后，白底 + 文字停留的秒数；
+	 * 之后背景动画（视频）入场并循环，同时底部中间出现下拉按钮
+	 */
+	holdSeconds: number;
 };
 
 /** 直播报表配置 */
