@@ -284,33 +284,32 @@ const heroEnabled = liveReportConfig.hero.enable;
 					this.style.visibility = "visible";
 					if (reduced) return;
 					this.ticking = false;
-					/** 单向：滑过首屏后不再回到 hero；同时锁住上滑，不让人滚回开场区域 */
-					this.fadedOut = false;
+					/**
+					 * 可逆淡出：下滑时 hero 渐隐、完全隐藏；上滑回来重新显示，
+					 * 背景循环动画继续（隐藏期间暂停，重新出现时恢复播放，省电且无缝）。
+					 */
+					this.hidden = false;
 					this.onScroll = () => {
 						if (this.ticking) return;
 						this.ticking = true;
 						requestAnimationFrame(() => {
 							this.ticking = false;
 							const vh = window.innerHeight || 1;
-
-							// 已经滑过首屏：把上滑限制在数据区顶部，不允许回到 hero
-							if (this.fadedOut) {
-								if (window.scrollY < vh) window.scrollTo({ top: vh });
-								return;
-							}
-
-							// 首屏 55% 处基本淡完，之后不再干扰数据区
+							// 首屏 55% 处淡完
 							const ratio = Math.min(
 								1,
 								Math.max(0, window.scrollY / (vh * 0.55)),
 							);
 							this.style.opacity = String(1 - ratio);
-							if (ratio >= 1) {
-								this.fadedOut = true;
-								this.style.visibility = "hidden";
+
+							const shouldHide = ratio >= 1;
+							if (shouldHide === this.hidden) return;
+							this.hidden = shouldHide;
+							this.style.visibility = shouldHide ? "hidden" : "visible";
+							if (shouldHide) {
 								for (const video of this.videos) video.pause();
 							} else {
-								this.style.visibility = "visible";
+								tryPlay(currentVideo());
 							}
 						});
 					};
