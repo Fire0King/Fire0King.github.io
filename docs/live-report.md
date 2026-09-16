@@ -182,16 +182,22 @@ B站 和 抖音 都**没有公开的“历史直播记录”接口**，所以时
 
 站点是纯静态输出（`astro build` → `dist/`），GitHub Pages 和 Cloudflare Pages 都能直接用，靠两个环境变量切换：
 
-| 变量 | 作用 | GitHub Pages（本仓库） | Cloudflare Pages（以后） |
+| 变量 | 作用 | 用户站（当前：`Fire0King.github.io`） | 项目页（`Firefly_Blog` 这类仓库） |
 | --- | --- | --- | --- |
-| `PUBLIC_SITE_URL` | 站点 origin（canonical / sitemap / RSS / 侧边栏域名） | `https://fire0king.github.io` | 你的自定义域名 |
-| `PUBLIC_BASE_PATH` | 子路径（Astro 的 `base`） | `/Firefly_Blog` | `/`（不设即可） |
+| `PUBLIC_SITE_URL` | 站点 origin（canonical / sitemap / RSS / 侧边栏域名） | `https://fire0king.github.io` | `https://fire0king.github.io` |
+| `PUBLIC_BASE_PATH` | 子路径（Astro 的 `base`） | `/`（根路径） | `/Firefly_Blog` |
 
 两者都有默认值兜底：`PUBLIC_SITE_URL` 默认取 `src/config/siteConfig.ts` 里的 `site_url`，`PUBLIC_BASE_PATH` 默认 `/`。
 
 ### 4.1 GitHub Pages（当前方案）
 
-仓库 `Fire0King/Firefly_Blog` → 站点地址 `https://fire0king.github.io/Firefly_Blog/`（用户站的 project page）。
+当前主站部署在**用户站仓库** `Fire0King/Fire0King.github.io`（分支 `main`，`main` 是它的默认分支）：
+
+| 项目 | 值 |
+| --- | --- |
+| 站点地址 | `https://fire0king.github.io/`（根路径，没有子路径） |
+| 本地 remote | `origin`（`firefly-blog` 是旧的 `Firefly_Blog` 仓库，留作备份） |
+| 本地分支 | `main`（跟踪 `origin/main`） |
 
 **必须先做的一件事**：仓库 Settings → Pages → Build and deployment → Source 选 **GitHub Actions**。
 如果停留在 “Deploy from a branch”，`deploy.yml` 会失败并提示 “Get Pages site failed / verify that the repository has Pages enabled and configured to build using GitHub Actions”。
@@ -199,9 +205,12 @@ B站 和 抖音 都**没有公开的“历史直播记录”接口**，所以时
 `deploy.yml` 会自动推导并注入上表的两个变量（按仓库名判断是用户站还是 project page），**代码里不需要写死子路径**：
 
 ```bash
-OWNER=Fire0King  REPO=Firefly_Blog
-# REPO != <OWNER>.github.io → project page
-PUBLIC_SITE_URL=https://Fire0King.github.io
+# 用户站：REPO == <OWNER>.github.io
+OWNER=Fire0King  REPO=Fire0King.github.io
+PUBLIC_SITE_URL=https://fire0king.github.io
+PUBLIC_BASE_PATH=/
+
+# 项目页（例如把仓库改名为 Firefly_Blog 时）
 PUBLIC_BASE_PATH=/Firefly_Blog
 ```
 
@@ -210,6 +219,12 @@ PUBLIC_BASE_PATH=/Firefly_Blog
 1. `deploy.yml`：`pnpm install` → `pnpm build` → 上传 `dist/` 部署到 Pages（公开仓库 Actions 免费，首次构建约 3~6 分钟）；
 2. `live-data.yml`：每 10 分钟采集一次，有变化就提交 → 这个提交会再次触发 `deploy.yml` → 页面数据自动更新；
 3. `build.yml` / `biome.yml`：只在代码变更时跑检查（数据提交已忽略）。
+
+> 定时任务只在**仓库默认分支**上运行。用户站的默认分支是 `main`，所以各工作流的监听分支同时写了
+> `master` 与 `main`；如果你以后把默认分支改成别的名字，记得同步修改这四个工作流。
+
+> 用两个仓库时注意：两个仓库的 Actions 都会各自采集并提交数据，等于双份 API 调用、两份数据。
+> 建议只保留一个仓库跑 Actions（另一个在 Settings → Actions → General 里 Disable actions 即可）。
 
 本地预览“GitHub Pages 子路径版”站点：
 

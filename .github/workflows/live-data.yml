@@ -3,12 +3,16 @@ name: Live data collector
 # 定时抓取 B站 / 抖音 的直播状态与粉丝数，写入 src/data/live/*.json
 # 提交后部署工作流（GitHub Pages）会自动重新构建，页面即可看到最新数据。
 #
+# 仓库：Fire0King/Fire0King.github.io（用户站，默认分支 main，站点在根路径）
+#
 # 说明：
 #   · cron 使用 UTC 时间，*/10 * * * * 表示每 10 分钟一次（GitHub 高峰期可能延迟几分钟）
 #   · 定时任务只在仓库的【默认分支】上运行，所以本文件必须存在于默认分支
 #   · 公开仓库的 Actions 分钟数免费不限量；私有仓库每月只有 2000 分钟，
 #     建议把频率改成 */30（并同步修改 src/config/live-report.config.json 的 intervalMinutes）
 #   · 本工作流只在有内容变化时才提交，避免制造无意义的提交记录
+#   · 需要仓库 Settings → Actions → General 允许 Write 权限（工作流里已声明 contents: write）
+#     且默认分支不能有阻止 Actions 推送的规则，否则提交会失败
 
 on:
   schedule:
