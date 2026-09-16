@@ -295,6 +295,26 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 		}
 	}
 
+	/*
+		视频不可用（解码失败 / 自动播放被拦 / 低电量模式不解码）时，脚本会打上
+		data-hero-state="fallback"：收起视频与压暗层，露出上面那层内置动画背景，
+		保证任何情况下屏幕上都有动画在跑，而不是一片黑或者一张静止首帧。
+	*/
+	live-hero-fade[data-hero-state="fallback"] .live-hero-video,
+	live-hero-fade[data-hero-state="fallback"] .live-hero-scrim {
+		display: none;
+	}
+
+	/*
+		主题自带的背景视频（导航栏播放按钮）一旦开始播放，会把自己那层的
+		#banner-overlay-container 整体 opacity:0（它以为这层只放首页文字），
+		而 hero 正好被 slot 进这一层，会被一起隐藏掉。这里用更高特异度保回来。
+	*/
+	html[data-bg-video-playing] #wallpaper-wrapper
+		:global(#banner-overlay-container) {
+		opacity: 1 !important;
+	}
+
 	/* ── 压暗层（随动画一起入场）──────────────────────── */
 	.live-hero-scrim {
 		position: absolute;

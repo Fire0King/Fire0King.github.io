@@ -154,6 +154,52 @@ npx tsx scripts/live-data/verify-report-utils.mjs
 换成自己的视频只要替换文件或改 `backgroundVideos` 即可。视频未配置或加载失败时，
 会自动露出内置的 CSS 动画背景（深蓝底 + 漂移光带），不会出现空白首屏。
 
+#### 1.7.1 支持哪些视频格式
+
+Firefly 本身**不限制**视频格式，hero 用的是浏览器原生 `<video>`（主题自带的壁纸播放器
+`BackgroundPlayer` 同理），能播什么完全由**浏览器**决定。实践上按兼容性从高到低：
+
+| 容器 / 编码 | 兼容性 | 说明 |
+| --- | --- | --- |
+| `.mp4`（H.264/AVC + yuv420p，Main/Baseline/High，`+faststart`） | 全平台 | 唯一“闭眼用”的格式：Chrome / Edge / Firefox / Safari / iOS / 各家 App 内置浏览器都支持。要兼容老旧安卓 WebView、微信/QQ 内置浏览器，优先 **Main 或 Baseline**（High 在 2012 年前的设备上可能解不动） |
+| `.webm`（VP8 / VP9 + Opus/Vorbis） | 较好 | Chrome / Edge / Firefox / 安卓全支持；Safari 需 macOS 11.3+ / iOS 14.5+，部分 App 内置浏览器不认 → 必须有 mp4 兜底 |
+| `.mp4`（HEVC/H.265） | 差 | 基本只有 Safari 能播，Chrome/Firefox 直接报错 |
+| `.webm`（AV1）、`.mp4`（AV1） | 一般 | 新 Chrome/Edge/Firefox 可以，老 Safari 不行 |
+| `.mov` / `.m4v` | 差 | 只有容器封装成 H.264+AAC 时部分浏览器认，别用 |
+| `.gif` / `.apng` | — | 能显示，但那是图片不是视频：只能写在 `logo` 这类 `<img>` 位置，不能进 `backgroundVideos` |
+
+推荐做法：**同一个文件名留两份**——`fv_movie1.webm`（体积小，现代浏览器优先命中）+
+`fv_movie1.mp4`（兜底）。页面模板会自动按“同名 mp4”查找并追加 `<source>`，所以只要
+把两个文件放同目录同名即可，不用改配置。转换命令：
+
+```bash
+# WebM → 兼容性最好的 mp4（无音轨，适合做背景动画）
+ffmpeg -i in.webm -c:v libx264 -profile:v main -level 3.1 -pix_fmt yuv420p \
+  -crf 22 -preset slow -an -movflags +faststart out.mp4
+```
+
+另外三点容易被忽略的：
+
+1. **静音才能自动播放**。现代浏览器只允许 `muted` 的视频自动播放，hero 里的 `<video>` 已经
+   写死 `muted` + `playsinline`；若你的浏览器开了“省电模式”，Safari / iOS 会**拒绝一切自动播放**，
+   这时脚本会退回到内置动画背景（见下）。
+2. **“减少动效”会整体关掉开场**。系统开启“动画效果 → 关闭”时 `prefers-reduced-motion: reduce`
+   生效，开场帘子、文字淡出、背景视频都会被跳过，直接显示白底 + 文字 + 按钮。
+3. **别用变量帧率 / 超长 GOP 的素材**：首帧迟迟解不出来时，观感就是“黑屏几秒才动”。
+
+#### 1.7.2 视频不播时怎么排查
+
+hero 的脚本在控制台里留了线索，按 `F12` → Console / Network 看：
+
+| 现象 | 排查方向 |
+| --- | --- |
+| 控制台 `[live-hero] 背景视频未能自动播放，将在首次交互后重试：NotAllowedError` | 自动播放被策略拦下，页面任何一次点击/滚动/按键后会自动重试；想立刻验证就先点一下页面 |
+| 控制台 `[live-hero] 背景视频不可用，改用内置动画背景：MediaError 4 …` | 浏览器解不了这个编码（`4` = 格式不支持）。看 Network 里 `fv_movieN.webm` / `.mp4` 的响应类型，换 H.264 Main 的 mp4 |
+| Network 里视频 404 | 路径不对，或忘了提交到仓库；`backgroundVideos` 里写的是 `public` 下的绝对路径（如 `/videos/live-hero/fv_movie1.webm`） |
+| 视频只播了一遍就没了 | 第 1 段（intro）播完没接上第 2 段：确认 `backgroundVideos` 里给了两段，且第 2 个文件能正常加载 |
+| 首屏只有静止画面 / 一片深蓝渐变 | 命中了兜底状态（`data-hero-state="fallback"`）：视频被拦或解码失败，此时内置动画背景在工作 |
+| 点了导航栏的“播放背景视频”后 hero 消失 | 已修：主题那层播放时会隐藏 `#banner-overlay-container`，直播页用更高特异度的规则把 hero 保回来 |
+
 ---
 
 ## 2. 数据是怎样攒出来的（重要）

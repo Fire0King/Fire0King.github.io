@@ -223,16 +223,47 @@ const heroEnabled = liveReportConfig.hero.enable;
 					};
 
 					// 视频加载失败 / 解码失败：隐藏它，露出内置动画背景，并且不让开场卡住
+					const failed = new Set();
+					const applyFallback = (reason) => {
+						if (this.getAttribute("data-hero-state") === "fallback") return;
+						console.warn(
+							"[live-hero] 背景视频不可用，改用内置动画背景：",
+							reason,
+						);
+						this.setAttribute("data-hero-state", "fallback");
+					};
 					const fail = (el, then) => {
 						if (!el) return;
-						const hide = () => {
+						const note = (reason) => {
+							if (failed.has(el)) return;
+							failed.add(el);
 							el.style.display = "none";
 							if (then) then();
+							// 只有所有视频都失败，才收起整层视频（否则会连带隐藏还能播的那段）
+							if (failed.size >= this.videos.length) applyFallback(reason);
 						};
-						el.addEventListener("error", hide, { once: true });
-						const source = el.querySelector("source");
-						if (source) {
-							source.addEventListener("error", hide, { once: true });
+						el.addEventListener(
+							"error",
+							() => {
+								const mediaError = el.error;
+								note(
+									mediaError
+										? `MediaError ${mediaError.code} ${mediaError.message || ""}`
+										: "video error 事件",
+								);
+							},
+							{ once: true },
+						);
+						// <source> 失败时错误事件挂在 source 上；只有全部 source 都失败
+						// （networkState 变成 NETWORK_NO_SOURCE）才算这段视频彻底不可用
+						for (const source of el.querySelectorAll("source")) {
+							source.addEventListener(
+								"error",
+								() => {
+									if (el.networkState === 3) note("所有 source 都无法解码");
+								},
+								{ once: true },
+							);
 						}
 					};
 					fail(intro, () => tryPlay(loop));
@@ -250,20 +281,60 @@ const heroEnabled = liveReportConfig.hero.enable;
 								tryPlay(video);
 							}
 						});
+						// 真的播起来了 → 撤销「兜底」状态，让视频层重新显示
+						video.addEventListener("playing", () => {
+							this.setAttribute("data-hero-state", "playing");
+						});
 					}
 
 					this.startVideos = () => {
 						if (this.videosStarted) return;
 						this.videosStarted = true;
-						if (!intro) return;
-						tryPlay(intro);
-						intro.addEventListener(
-							"ended",
-							() => {
-								intro.style.display = "none";
-								play(loop).catch(() => retryOnGesture(loop));
-							},
-							{ once: true },
+						const first = currentVideo();
+						if (!first) return;
+						tryPlay(first);
+
+						// 第 1 段（intro）播完后接着播第 2 段（loop）并循环。
+						// 在 intro 快放完时就切（而不是等 ended），避免中间出现断帧。
+						if (intro && loop) {
+							let handedOff = false;
+							const handOff = () => {
+								if (handedOff) return;
+								handedOff = true;
+								// 先让 loop 起来（DOM 里在后面，压住 intro），再收掉 intro，衔接更顺
+								tryPlay(loop);
+								this.timers.push(
+									setTimeout(() => {
+										intro.style.display = "none";
+									}, 180),
+								);
+							};
+							intro.addEventListener("ended", handOff, { once: true });
+							intro.addEventListener("timeupdate", () => {
+								const total = intro.duration;
+								if (!Number.isFinite(total)) return;
+								if (total - intro.currentTime <= 0.35) handOff();
+							});
+						}
+
+						// 兜底：入场时刻之后仍在暂停（自动播放被拦 / 低电量模式 / 解码不动）
+						// → 收起视频层，露出内置动画背景，页面上始终有东西在动。
+						// 之后一旦通过用户手势播起来，playing 事件会把状态改回来。
+						const idleCheckDelay = Math.max(
+							0,
+							(curtainEndSeconds(this) + 1.6) * 1000,
+						);
+						this.timers.push(
+							setTimeout(() => {
+								const current = currentVideo();
+								if (
+									current &&
+									current.paused &&
+									this.getAttribute("data-hero-state") !== "fallback"
+								) {
+									applyFallback("等待 1.6s 仍未能开始播放（多为自动播放被拦截）");
+								}
+							}, idleCheckDelay),
 						);
 					};
 
@@ -275,9 +346,10 @@ const heroEnabled = liveReportConfig.hero.enable;
 						const endMs =
 							(curtainEndSeconds(this) + 0.2) * 1000 || 4200;
 						this.timers.push(setTimeout(this.startVideos, endMs));
-					} else {
+					} else if (!reduced) {
 						this.startVideos();
 					}
+					// 减少动效时 CSS 已把视频层 display:none，这里干脆不播，省流量
 
 					// 滚动淡出：先显式恢复可见，且不在挂载瞬间做判断（避免切换页面时被误隐藏）
 					this.style.opacity = "1";
