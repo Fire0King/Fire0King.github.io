@@ -12,8 +12,8 @@
  *   1s→4s      帘子整体向下退场，露出白底 + 标题（文字为深色）
  *   3.5s       小字（数据更新信息）开始淡入，0.8s 淡完（帘子落完前 0.5s 起）
  *   4.8s       文字整体淡出（小字出现后停留 hero.holdSeconds，默认 0.5s），0.7s 淡完
- *   5.8s       背景视频直接接上（不淡入：素材开头本身就是纯白），播完切下一段循环；
- *              底部中间的下拉按钮同时出现
+ *   5.5s       文字刚淡完，背景视频立刻接上（不淡入：素材开头本身就是纯白），
+ *              播完切下一段循环；底部中间的下拉按钮同时出现
  *   点击按钮    平滑滚动到下方数据区
  *   向下滚动     超过约半屏时 hero 渐隐（可逆）：上滑回来会重新显示，循环动画继续
  *
@@ -94,14 +94,15 @@ const curtainEnd = hero.curtainDelaySeconds + hero.curtainDurationSeconds;
 const META_IN_DURATION = 0.8;
 /** 文字淡出时长；与下面 CSS 里的 var(--text-out-duration) 同源 */
 const TEXT_OUT_DURATION = 0.7;
-/** 动画入场比文字淡完再晚一点，避免两段动画黏在一起 */
-const VIDEO_IN_GAP = 0.3;
 /** 小字：在帘子完全落下前 0.5s 开始出现 */
 const metaInDelay = Math.max(0, curtainEnd - 0.5);
 /** 文字淡出：小字完全出现后，再停留 hero.holdSeconds 秒开始淡出 */
 const textOutDelay = metaInDelay + META_IN_DURATION + hero.holdSeconds;
-/** 背景动画入场：文字淡完之后 */
-const videoInDelay = textOutDelay + TEXT_OUT_DURATION + VIDEO_IN_GAP;
+/**
+ * 背景动画入场：文字淡完（= 完全看不见）的那一瞬间就接上，中间不留空档。
+ * 素材开头本身就是纯白，视频接上白底是无缝的，所以不需要留间隔。
+ */
+const videoInDelay = textOutDelay + TEXT_OUT_DURATION;
 /** 预计算：避免在模板的 if 条件里直接用大于号（容易踩到 Astro 解析坑） */
 const hasIntroLines = hero.introLines.length > 0;
 const hasSmallLine = Boolean(smallLine?.trim());

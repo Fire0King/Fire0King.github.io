@@ -347,7 +347,7 @@ const heroEnabled = liveReportConfig.hero.enable;
 					};
 
 					/**
-					 * 背景动画入场：默认 5.8s（--video-in-delay，文字淡完之后）。
+					 * 背景动画入场：默认 5.5s（--video-in-delay，文字刚淡完）。
 					 * 视频也从这一刻才开始播，它自己的白开头正好接上白底。
 					 */
 					this.startVideos = () => {
@@ -420,7 +420,7 @@ const heroEnabled = liveReportConfig.hero.enable;
 								this.startVideos,
 								Math.max(
 									0,
-									cssSeconds(this, "--video-in-delay", 5.8) * 1000,
+									cssSeconds(this, "--video-in-delay", 5.5) * 1000,
 								),
 							),
 						);

@@ -139,7 +139,7 @@ npx tsx scripts/live-data/verify-report-utils.mjs
 
 `/live/` 的首屏是整屏开场，复刻 [Electr0ME/P3RE-Web-Effect](https://github.com/Electr0ME/P3RE-Web-Effect)：
 蓝波浪帘从整屏盖住状态向下退场 → 白底上显示居中开场文字（3.5s 起小字淡入、4.8s 起整体淡出，
-时长由 `hero.holdSeconds` 调节）→ 5.8s 背景动画**直接**接上（不做淡入，见下）→
+时长由 `hero.holdSeconds` 调节）→ 5.5s 文字刚淡完，背景动画**直接**接上（不做淡入，见下）→
 右侧品牌图与底部下拉按钮同时出现；数据放在首屏之下，下滑才看到。配置在
 `live-report.config.json` 的 `hero` 段：
 
@@ -149,7 +149,7 @@ npx tsx scripts/live-data/verify-report-utils.mjs
 | `title` / `introLines` | 居中开场文字；默认就是参考仓库原文（Memento Mori + 三行引文） |
 | `waveColor` | 波浪颜色，默认参考的 P3R 蓝 `#469ce5`；填 `theme` 可跟随站点主色 |
 | `logo` | 右侧淡入的品牌图（public 下的路径），留空则不显示 |
-| `backgroundVideos` | 背景视频（public 下的路径数组）：第 1 段在 5.8s（文字淡完之后）**直接**接上、播完切第 2 段循环；留空则用内置 CSS 动画背景 |
+| `backgroundVideos` | 背景视频（public 下的路径数组）：第 1 段在 5.5s（文字刚淡完）**直接**接上、播完切第 2 段循环；留空则用内置 CSS 动画背景 |
 | `curtainDelaySeconds` / `curtainDurationSeconds` | 帘子的延迟与时长，默认 `1` / `3`（参考值） |
 
 自带素材：`public/videos/live-hero/fv_movie1.webm`（374 KB）与 `fv_movie2.webm`（378 KB），
