@@ -232,9 +232,11 @@ export function summarizeDay(
 	streams: LiveStreamRecord[],
 	activeDates: Map<LivePlatformId, string>,
 ): LiveDaySummary {
-	const platforms = [
-		...new Set(streams.map((stream) => stream.platform)),
-	] as LivePlatformId[];
+	// 平台顺序固定成 B站 → 抖音：月历格子的对角渐变色、平台圆点、图例都靠这个顺序保持一致
+	const platformOrder: LivePlatformId[] = ["bilibili", "douyin"];
+	const platforms = [...new Set(streams.map((stream) => stream.platform))].sort(
+		(left, right) => platformOrder.indexOf(left) - platformOrder.indexOf(right),
+	);
 	return {
 		date,
 		streams: [...streams].sort((a, b) => a.start.localeCompare(b.start)),

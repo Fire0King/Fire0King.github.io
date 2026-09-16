@@ -20,11 +20,14 @@ interface Props {
 let { calendar, locale, weekStart, timezone, selectedDate, onselect }: Props =
 	$props();
 
-/** 平台品牌色，与站点主题并存（只用于小圆点与描边） */
+/** 平台品牌色，与站点主题并存（用于圆点、描边与格子底色） */
 const PLATFORM_COLORS: Record<LivePlatformId, string> = {
 	bilibili: "#fb7299",
 	douyin: "#22c9d6",
 };
+
+/** 平台固定顺序：决定对角渐变的起止色，保证同一天永远是「B站 → 抖音」 */
+const PLATFORM_ORDER: LivePlatformId[] = ["bilibili", "douyin"];
 
 const weekdays = $derived(getWeekdayLabels(locale, weekStart));
 const hourUnit = i18n(I18nKey.liveReportHourUnit);
@@ -38,14 +41,33 @@ const maxDayDuration = $derived(
 	),
 );
 
-/** 当月出现过的平台（图例只列这些） */
-const monthPlatforms = $derived([
-	...new Set(calendar.cells.flatMap((cell) => cell.summary?.platforms ?? [])),
-] as LivePlatformId[]);
+/** 当月出现过的平台（图例只列这些，顺序固定 B站 → 抖音） */
+const monthPlatforms = $derived(
+	[
+		...new Set(calendar.cells.flatMap((cell) => cell.summary?.platforms ?? [])),
+	].sort(
+		(left, right) =>
+			PLATFORM_ORDER.indexOf(left as LivePlatformId) -
+			PLATFORM_ORDER.indexOf(right as LivePlatformId),
+	) as LivePlatformId[],
+);
 
 const hasLiveNow = $derived(
 	calendar.cells.some((cell) => cell.summary?.hasActive),
 );
+
+/**
+ * 格子的配色变量：
+ * 一个平台 → --platform-color；两个平台 → 再给一个 --platform-color-2，
+ * 由 CSS 把底色做成两色的对角渐变。
+ */
+function platformStyle(platforms: LivePlatformId[]): string {
+	const parts = [`--platform-color: ${PLATFORM_COLORS[platforms[0]]}`];
+	if (platforms[1]) {
+		parts.push(`--platform-color-2: ${PLATFORM_COLORS[platforms[1]]}`);
+	}
+	return parts.join("; ");
+}
 
 function platformLabel(platform: LivePlatformId): string {
 	return platform === "bilibili"
@@ -86,13 +108,12 @@ function cellTooltip(date: string): string {
 				class:is-selected={cell.date === selectedDate}
 				class:is-future={cell.isFuture}
 				class:has-live={Boolean(summary)}
+				class:is-multi={Boolean(summary && summary.platforms.length > 1)}
 				disabled={!cell.inMonth}
 				aria-label={cellTooltip(cell.date)}
 				title={cellTooltip(cell.date)}
 				onclick={() => onselect?.(cell.date)}
-				style={summary
-					? `--platform-color: ${PLATFORM_COLORS[summary.platforms[0]]}`
-					: undefined}
+				style={summary ? platformStyle(summary.platforms) : undefined}
 			>
 				<span class="live-calendar-day">
 					{cell.day}
@@ -232,6 +253,32 @@ function cellTooltip(date: string): string {
 			in oklab,
 			var(--platform-color, var(--primary)) 35%,
 			transparent
+		);
+	}
+
+	/*
+		同一天 B站 和 抖音 都播了：底色由单色淡底换成两色的对角渐变
+		（两个色都按同样的比例混进卡片底色，明暗主题下深浅一致），
+		描边取两色的混合，底部热度条也从一色变两色。
+	*/
+	.live-calendar-cell.has-live.is-multi {
+		background-image: linear-gradient(
+			135deg,
+			color-mix(in oklab, var(--platform-color) 22%, var(--card-bg)) 0%,
+			color-mix(in oklab, var(--platform-color-2) 22%, var(--card-bg)) 100%
+		);
+		border-color: color-mix(
+			in oklab,
+			var(--platform-color) 45%,
+			var(--platform-color-2)
+		);
+	}
+
+	.live-calendar-cell.is-multi .live-calendar-heat {
+		background: linear-gradient(
+			to right,
+			var(--platform-color, var(--primary)),
+			var(--platform-color-2, var(--platform-color, var(--primary)))
 		);
 	}
 

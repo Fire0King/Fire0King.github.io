@@ -296,14 +296,16 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 	}
 
 	/*
-		移动端取景：素材是 1920×1080 横屏，竖屏下 object-fit: cover 只截得到中间一条，
-		而 P3R 这个画面的主体在左边，所以从左侧开始取景（object-position: left center），
-		保证主体不会被裁掉。桌面端视口比例接近 16:9，几乎没有横向裁切，不用改。
+		窄屏（竖屏手机 / 平板竖屏）取景：素材是 1920×1080 横屏，竖屏下 object-fit: cover
+		只截得到中间一条。用 ffmpeg 量过这段动画的逐列运动强度，画面主体集中在源画面
+		x≈320~800（即 17%~42%，峰值在 25%~33%），默认的 center 正好把它裁掉。
+		22% 的取景窗口对应源画面 x≈313~812，主体落在画面中间；想再往左/右微调就改这个
+		百分比（0% = 贴左，50% = 居中）。桌面端接近 16:9，基本不裁切，不用改。
 		两段视频共用同一条规则，交接时取景一致、画面不会跳。
 	*/
-	@media (max-width: 767px) {
+	@media (max-width: 1023px) {
 		.live-hero-video {
-			object-position: left center;
+			object-position: 22% center;
 		}
 	}
 

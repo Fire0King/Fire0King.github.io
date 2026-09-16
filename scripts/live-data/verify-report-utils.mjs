@@ -54,12 +54,49 @@ const calendar = buildCalendarMonth(month, streams.records, {
 });
 const series = buildFollowerSeries("bilibili", followers, month);
 
-/** 是否已经有采集数据：没有数据时只验证纯函数，依赖数据的断言会被跳过 */
-const hasData =
-	(streams.records?.length ?? 0) > 0 ||
-	Object.values(followers.series ?? {}).some(
-		(platformSeries) => (platformSeries?.points?.length ?? 0) > 0,
-	);
+/** 有没有"场次"数据 / 有没有"粉丝快照"数据：两类断言各自独立判断是否跳过 */
+const hasStreams = (streams.records?.length ?? 0) > 0;
+const hasFollowerPoints = Object.values(followers.series ?? {}).some(
+	(platformSeries) => (platformSeries?.points?.length ?? 0) > 0,
+);
+
+/** 校验配置里的手动补录：要么 start+end，要么 date+durationSeconds */
+function manualRecordIssue(item) {
+	if (item.platform !== "bilibili" && item.platform !== "douyin") {
+		return "platform 必须是 bilibili 或 douyin";
+	}
+	const hasRange = Boolean(item.start && item.end);
+	const hasDuration =
+		Boolean(item.date) &&
+		Number.isFinite(Number(item.durationSeconds)) &&
+		Number(item.durationSeconds) > 0;
+	if (!hasRange && !hasDuration) {
+		return "需要 start+end，或者 date+durationSeconds";
+	}
+	if (
+		hasRange &&
+		(Number.isNaN(Date.parse(item.start)) || Number.isNaN(Date.parse(item.end)))
+	) {
+		return "start/end 不是合法时间";
+	}
+	if (item.date && !/^\d{4}-\d{2}-\d{2}$/.test(item.date)) {
+		return "date 必须是 YYYY-MM-DD";
+	}
+	return null;
+}
+
+const config = JSON.parse(
+	readFileSync(path.join(ROOT_DIR, "src/config/live-report.config.json"), "utf8"),
+);
+const manualRecords = Array.isArray(config.manualRecords)
+	? config.manualRecords
+	: [];
+const manualIssues = manualRecords
+	.map((item, index) => {
+		const issue = manualRecordIssue(item);
+		return issue ? `manualRecords[${index}]（${item.platform}）：${issue}` : null;
+	})
+	.filter(Boolean);
 
 const checks = [
 	["今天日期键格式", /^\d{4}-\d{2}-\d{2}$/.test(todayKey)],
@@ -69,9 +106,13 @@ const checks = [
 		calendar.cells.filter((cell) => cell.inMonth).length ===
 			calendar.daysInMonth,
 	],
+	[
+		`手动补录格式合法（共 ${manualRecords.length} 条）`,
+		manualIssues.length === 0,
+	],
 ];
 
-if (hasData) {
+if (hasStreams) {
 	checks.push(
 		["直播天数 > 0", calendar.stats.liveDays > 0],
 		["总时长 > 0", calendar.stats.totalDurationSeconds > 0],
@@ -89,6 +130,11 @@ if (hasData) {
 				calendar.stats.averageDurationSeconds,
 		],
 		["连续直播天数 >= 1", calendar.stats.streakDays >= 1],
+	);
+}
+
+if (hasFollowerPoints) {
+	checks.push(
 		["粉丝序列有数据点", series.points.length > 0],
 		[
 			"净增减 = 各数据点增减之和",
@@ -155,10 +201,16 @@ for (const [name, ok] of checks) {
 }
 
 console.log("");
-if (!hasData) {
+if (!hasStreams) {
 	console.log(
-		"⚠️ src/data/live 里还没有采集数据，已跳过依赖数据的断言（等 Actions 跑过一次再执行会更完整）",
+		"⚠️ src/data/live/streams.json 里还没有采集到场次（手动补录在配置里，不计入此文件），已跳过场次相关断言",
 	);
+}
+if (!hasFollowerPoints) {
+	console.log("⚠️ 粉丝快照还没有数据点，已跳过粉丝相关断言");
+}
+if (manualIssues.length > 0) {
+	for (const issue of manualIssues) console.log(`   ✗ ${issue}`);
 }
 console.log(
 	`月份 ${month} | 直播天数 ${calendar.stats.liveDays} | 场次 ${calendar.stats.streamCount} | 连续 ${calendar.stats.streakDays} 天`,
