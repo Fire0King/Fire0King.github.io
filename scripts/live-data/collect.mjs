@@ -171,6 +171,29 @@ function toNumber(value, fallback = 0) {
 }
 
 /**
+ * 描述一个 Cookie 字符串：只输出字段名，绝不输出值，可安全打进 CI 日志。
+ * 用途：判断 Secret 是否注入成功、关键字段是否齐全（例如抖音的 ttwid）。
+ */
+function describeCookie(cookie) {
+	if (!cookie || !cookie.trim()) return "未注入（环境变量为空）";
+	const names = cookie
+		.split(";")
+		.map((part) => part.split("=")[0]?.trim())
+		.filter(Boolean);
+	const keyFields = [
+		"ttwid",
+		"msToken",
+		"odin_tt",
+		"passport_csrf_token",
+		"SESSDATA",
+	];
+	const present = keyFields.filter((name) =>
+		names.some((item) => item.toLowerCase() === name.toLowerCase()),
+	);
+	return `已注入 ${names.length} 项${present.length > 0 ? `，含 ${present.join(" / ")}` : "，⚠️ 未发现关键字段"}`;
+}
+
+/**
  * amagi 的返回值形如 { success, code, message, data }。
  * 关键：接口失败时它是返回 success:false 而不是抛异常 —— 必须显式当失败处理，
  * 否则"接口挂了/被风控"会被误判成"未开播"，进而把正在进行的场次错误地结算掉。
@@ -650,6 +673,15 @@ async function main() {
 			douyin: process.env.DOUYIN_COOKIE ?? "",
 		},
 	});
+
+	// 诊断：只打印 Cookie 的字段名与数量，绝不打印值（可安全留在 CI 日志里）
+	// 用来一眼判断 Secret 有没有注入、关键项在不在
+	if (enabled.includes("bilibili")) {
+		log(`B站 Cookie：${describeCookie(process.env.BILIBILI_COOKIE)}`);
+	}
+	if (enabled.includes("douyin")) {
+		log(`抖音 Cookie：${describeCookie(process.env.DOUYIN_COOKIE)}`);
+	}
 
 	const snapshots = [];
 	if (enabled.includes("bilibili")) {
