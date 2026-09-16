@@ -167,13 +167,15 @@ export function getWeekdayLabels(
 	return weekStart === "sunday" ? [labels[6], ...labels.slice(0, 6)] : labels;
 }
 
-/** 时长格式化，如 3小时12分钟 / 45分钟 */
+/** 时长格式化，如 3小时12分钟 / 45分钟（不足 1 分钟的部分直接舍去，不四舍五入） */
 export function formatDuration(
 	seconds: number,
 	hourUnit: string,
 	minuteUnit: string,
 ): string {
-	const totalMinutes = Math.max(0, Math.round(seconds / 60));
+	// 用 floor 而不是 round：1 小时 58 分 47 秒应该显示成 1小时58分钟，
+	// 四舍五入会变成 1小时59分钟，看着像数据填错了
+	const totalMinutes = Math.max(0, Math.floor(seconds / 60));
 	const hours = Math.floor(totalMinutes / 60);
 	const minutes = totalMinutes % 60;
 	if (hours <= 0) return `${minutes}${minuteUnit}`;

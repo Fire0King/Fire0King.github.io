@@ -30,6 +30,11 @@ export type LiveStreamRecord = {
 	cover?: string;
 	/** true 表示这条记录来自配置里的手动补录 */
 	manual?: boolean;
+	/**
+	 * true 表示这条手动记录只填了时长、不知道具体几点开播。
+	 * start/end 会是按日期补出来的占位值（只用于排序），页面不要显示时段
+	 */
+	timeUnknown?: boolean;
 };
 
 /** 正在直播的场次（还没结束） */

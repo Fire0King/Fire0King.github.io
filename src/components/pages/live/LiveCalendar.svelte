@@ -58,10 +58,13 @@ function cellTooltip(date: string): string {
 	const cell = calendar.cells.find((item) => item.date === date);
 	if (!cell?.summary) return date;
 	const detail = cell.summary.streams
-		.map(
-			(stream) =>
-				`${platformLabel(stream.platform)} ${toClock(stream.start, timezone)}-${toClock(stream.end, timezone)} ${formatDuration(stream.durationSeconds, hourUnit, minuteUnit)}｜${stream.title}`,
-		)
+		.map((stream) => {
+			// 只补录了时长、不知道几点开播的场次不显示时段
+			const timePart = stream.timeUnknown
+				? ""
+				: `${toClock(stream.start, timezone)}-${toClock(stream.end, timezone)} `;
+			return `${platformLabel(stream.platform)} ${timePart}${formatDuration(stream.durationSeconds, hourUnit, minuteUnit)}｜${stream.title}`;
+		})
 		.join("\n");
 	return `${date}${cell.summary.hasActive ? `（${i18n(I18nKey.liveReportStreaming)}）` : ""}\n${detail}`;
 }

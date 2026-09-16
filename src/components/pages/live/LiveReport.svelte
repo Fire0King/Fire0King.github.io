@@ -407,9 +407,11 @@ function activeElapsed(start: string): string {
 							>
 								{platformLabel(stream.platform)}
 							</span>
-							<span class="live-report-stream-time">
-								{toClock(stream.start, timezone)} - {toClock(stream.end, timezone)}
-							</span>
+							{#if !stream.timeUnknown}
+								<span class="live-report-stream-time">
+									{toClock(stream.start, timezone)} - {toClock(stream.end, timezone)}
+								</span>
+							{/if}
 							<span class="live-report-stream-title">{stream.title}</span>
 							<span class="live-report-stream-duration">
 								{formatDuration(

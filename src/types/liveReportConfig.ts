@@ -48,13 +48,24 @@ export type LiveReportManualRecord = {
 	_note?: string;
 	/** 平台 */
 	platform: LivePlatformId;
-	/** 当时的直播标题 */
-	title: string;
-	/** 开始时间，ISO 字符串，建议带时区偏移，如 2026-02-14T20:00:00+08:00 */
-	start: string;
+	/** 当时的直播标题，可以留空 */
+	title?: string;
+	/**
+	 * 开始/结束时间，ISO 字符串，建议带时区偏移，如 2026-02-14T20:00:00+08:00。
+	 * 只记得时长、不记得具体几点开播时，这两个可以一起省略，改填 durationSeconds + date。
+	 */
+	start?: string;
 	/** 结束时间，ISO 字符串 */
-	end: string;
-	/** 当日归属日期 YYYY-MM-DD，留空则按配置时区从 start 推导 */
+	end?: string;
+	/**
+	 * 只填时长时用它（秒）。填了 start/end 时忽略。
+	 * 页面会只显示时长、不显示时段（不会瞎编一个开播时间）
+	 */
+	durationSeconds?: number;
+	/**
+	 * 当日归属日期 YYYY-MM-DD。
+	 * 给了 start 时可以留空（按配置时区从 start 推导）；只填时长时必填
+	 */
 	date?: string;
 	/** 回放/录播地址，可选 */
 	url?: string;

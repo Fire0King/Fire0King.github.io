@@ -34,29 +34,66 @@ function normalizeManualRecords(): LiveStreamRecord[] {
 	const timeZone = liveReportConfig.timezone;
 	const records: LiveStreamRecord[] = [];
 	for (const [index, item] of liveReportConfig.manualRecords.entries()) {
-		const start = new Date(item.start);
-		const end = new Date(item.end);
-		if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-			console.warn(
-				`[live-report] manualRecords[${index}] 时间格式不正确，已跳过：${item.start} ~ ${item.end}`,
-			);
+		const platform: LivePlatformId = item.platform;
+		const hasRange = Boolean(item.start && item.end);
+		const durationSeconds = Number(item.durationSeconds);
+
+		// 形式一：给了 start ~ end，按区间算时长
+		if (hasRange) {
+			const start = new Date(item.start as string);
+			const end = new Date(item.end as string);
+			if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+				console.warn(
+					`[live-report] manualRecords[${index}] 时间格式不正确，已跳过：${item.start} ~ ${item.end}`,
+				);
+				continue;
+			}
+			records.push({
+				id: `manual-${platform}-${start.toISOString()}`,
+				platform,
+				title: item.title ?? "",
+				date: item.date || toDateKey(start, timeZone),
+				start: start.toISOString(),
+				end: end.toISOString(),
+				durationSeconds: Math.max(
+					0,
+					Math.round((end.getTime() - start.getTime()) / 1000),
+				),
+				url: item.url,
+				manual: true,
+			});
 			continue;
 		}
-		const platform: LivePlatformId = item.platform;
-		records.push({
-			id: `manual-${platform}-${start.toISOString()}`,
-			platform,
-			title: item.title,
-			date: item.date || toDateKey(start, timeZone),
-			start: start.toISOString(),
-			end: end.toISOString(),
-			durationSeconds: Math.max(
-				0,
-				Math.round((end.getTime() - start.getTime()) / 1000),
-			),
-			url: item.url,
-			manual: true,
-		});
+
+		// 形式二：只记得时长（+ 日期）。开播时间用当天 00:00 UTC 占位，只为排序，
+		// 页面会靠 timeUnknown 判断不显示时段，绝不瞎编一个开播时间
+		if (item.date && Number.isFinite(durationSeconds) && durationSeconds > 0) {
+			const start = new Date(`${item.date}T00:00:00Z`);
+			if (Number.isNaN(start.getTime())) {
+				console.warn(
+					`[live-report] manualRecords[${index}] date 格式不正确，已跳过：${item.date}`,
+				);
+				continue;
+			}
+			const end = new Date(start.getTime() + durationSeconds * 1000);
+			records.push({
+				id: `manual-${platform}-${item.date}`,
+				platform,
+				title: item.title ?? "",
+				date: item.date,
+				start: start.toISOString(),
+				end: end.toISOString(),
+				durationSeconds: Math.round(durationSeconds),
+				url: item.url,
+				manual: true,
+				timeUnknown: true,
+			});
+			continue;
+		}
+
+		console.warn(
+			`[live-report] manualRecords[${index}] 需要 start+end，或者 date+durationSeconds，已跳过`,
+		);
 	}
 	return records;
 }

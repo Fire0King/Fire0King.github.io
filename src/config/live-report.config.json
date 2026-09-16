@@ -36,5 +36,34 @@
 		"curtainDurationSeconds": 3,
 		"holdSeconds": 0.5
 	},
-	"manualRecords": []
+	"manualRecords": [
+		{
+			"_note": "补录 9.6：B站 1 小时 58 分 47 秒（只记得时长，所以只填 date + durationSeconds，页面不显示时段）",
+			"platform": "bilibili",
+			"title": "",
+			"date": "2026-09-06",
+			"durationSeconds": 7127
+		},
+		{
+			"_note": "补录 9.7：抖音 2 小时 10 分钟",
+			"platform": "douyin",
+			"title": "",
+			"date": "2026-09-07",
+			"durationSeconds": 7800
+		},
+		{
+			"_note": "补录 9.13：B站 1 小时 24 分钟",
+			"platform": "bilibili",
+			"title": "",
+			"date": "2026-09-13",
+			"durationSeconds": 5040
+		},
+		{
+			"_note": "补录 9.13：抖音 1 小时 10 分钟",
+			"platform": "douyin",
+			"title": "",
+			"date": "2026-09-13",
+			"durationSeconds": 4200
+		}
+	]
 }
