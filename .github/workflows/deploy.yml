@@ -6,7 +6,8 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ master ]
+    # 同时支持 master / main：GitHub 默认分支名因仓库而异，定时任务只跑默认分支
+    branches: [ master, main ]
   workflow_dispatch:
 
 # Pages 部署需要的权限
@@ -48,15 +49,18 @@ jobs:
           set -euo pipefail
           OWNER="${GITHUB_REPOSITORY%%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
+          # 域名大小写不敏感，统一转小写，避免 canonical / sitemap 里出现 Fire0King.github.io
+          OWNER_LC=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+          REPO_LC=$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')
           # 仓库名为 <owner>.github.io 时是用户站（部署在根路径），否则是 project page（子路径）
           if [ -n "${SITE_URL_OVERRIDE}" ]; then
             echo "PUBLIC_SITE_URL=${SITE_URL_OVERRIDE}" >> "$GITHUB_ENV"
           else
-            echo "PUBLIC_SITE_URL=https://${OWNER}.github.io" >> "$GITHUB_ENV"
+            echo "PUBLIC_SITE_URL=https://${OWNER_LC}.github.io" >> "$GITHUB_ENV"
           fi
           if [ -n "${BASE_PATH_OVERRIDE}" ]; then
             echo "PUBLIC_BASE_PATH=${BASE_PATH_OVERRIDE}" >> "$GITHUB_ENV"
-          elif [ "$REPO" = "${OWNER}.github.io" ]; then
+          elif [ "$REPO_LC" = "${OWNER_LC}.github.io" ]; then
             echo "PUBLIC_BASE_PATH=/" >> "$GITHUB_ENV"
           else
             echo "PUBLIC_BASE_PATH=/${REPO}" >> "$GITHUB_ENV"
