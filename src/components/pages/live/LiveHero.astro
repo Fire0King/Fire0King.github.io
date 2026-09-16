@@ -84,11 +84,13 @@ const curtainEnd = hero.curtainDelaySeconds + hero.curtainDurationSeconds;
 const videoInDelay = curtainEnd + hero.holdSeconds;
 /** 文字淡出：比动画入场早 1s 开始、0.7s 淡完，即动画入场时文字已消失 */
 const textOutDelay = Math.max(0, videoInDelay - 1);
+/** 小字（数据更新信息）：在帘子完全落下前 0.5s 就开始出现 */
+const metaInDelay = Math.max(0, curtainEnd - 0.5);
 /** 预计算：避免在模板的 if 条件里直接用大于号（容易踩到 Astro 解析坑） */
 const hasIntroLines = hero.introLines.length > 0;
 const hasSmallLine = Boolean(smallLine?.trim());
 const rootClass = hasVideo ? "live-hero" : "live-hero no-video";
-const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDelaySeconds}s; --curtain-duration: ${hero.curtainDurationSeconds}s; --curtain-end: ${curtainEnd}s; --video-in-delay: ${videoInDelay}s; --text-out-delay: ${textOutDelay}s;`;
+const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDelaySeconds}s; --curtain-duration: ${hero.curtainDurationSeconds}s; --curtain-end: ${curtainEnd}s; --meta-in-delay: ${metaInDelay}s; --video-in-delay: ${videoInDelay}s; --text-out-delay: ${textOutDelay}s;`;
 ---
 
 <live-hero-fade class={rootClass} data-hero style={rootStyle}>
@@ -352,13 +354,13 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 		display: block;
 	}
 
-	/* 小字（数据更新信息）：帘子退场后淡入，常驻 */
+	/* 小字（数据更新信息）：帘子完全落下前 0.5s 开始淡入，常驻 */
 	.live-hero-center-meta {
 		margin-top: 1.1rem;
 		font-size: 0.8rem;
 		line-height: 1.7;
 		opacity: 0;
-		animation: live-hero-meta-in 0.8s ease-out var(--curtain-end, 4s) forwards;
+		animation: live-hero-meta-in 0.8s ease-out var(--meta-in-delay, 3.5s) forwards;
 	}
 
 	@keyframes live-hero-meta-in {
