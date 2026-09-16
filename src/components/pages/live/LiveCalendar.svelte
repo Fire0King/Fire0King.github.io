@@ -38,6 +38,15 @@ const maxDayDuration = $derived(
 	),
 );
 
+/** 当月出现过的平台（图例只列这些） */
+const monthPlatforms = $derived([
+	...new Set(calendar.cells.flatMap((cell) => cell.summary?.platforms ?? [])),
+] as LivePlatformId[]);
+
+const hasLiveNow = $derived(
+	calendar.cells.some((cell) => cell.summary?.hasActive),
+);
+
 function platformLabel(platform: LivePlatformId): string {
 	return platform === "bilibili"
 		? i18n(I18nKey.liveReportPlatformBilibili)
@@ -59,7 +68,6 @@ function cellTooltip(date: string): string {
 </script>
 
 <div class="live-calendar">
-	<!-- 星期表头 -->
 	<div class="live-calendar-grid">
 		{#each weekdays as weekday (weekday)}
 			<div class="live-calendar-weekday">{weekday}</div>
@@ -73,6 +81,7 @@ function cellTooltip(date: string): string {
 				class:is-out={!cell.inMonth}
 				class:is-today={cell.isToday}
 				class:is-selected={cell.date === selectedDate}
+				class:is-future={cell.isFuture}
 				class:has-live={Boolean(summary)}
 				disabled={!cell.inMonth}
 				aria-label={cellTooltip(cell.date)}
@@ -122,6 +131,29 @@ function cellTooltip(date: string): string {
 			</button>
 		{/each}
 	</div>
+
+	<!-- 图例 -->
+	<div class="live-calendar-legend">
+		{#each monthPlatforms as platform (platform)}
+			<span class="live-calendar-legend-item">
+				<i
+					class="live-calendar-legend-dot"
+					style={`background-color: ${PLATFORM_COLORS[platform]}`}
+				></i>
+				{platformLabel(platform)}
+			</span>
+		{/each}
+		<span class="live-calendar-legend-item">
+			<i class="live-calendar-legend-today"></i>
+			{i18n(I18nKey.liveReportToday)}
+		</span>
+		{#if hasLiveNow}
+			<span class="live-calendar-legend-item">
+				<i class="live-calendar-legend-live"></i>
+				{i18n(I18nKey.liveReportStreaming)}
+			</span>
+		{/if}
+	</div>
 </div>
 
 <style>
@@ -133,8 +165,10 @@ function cellTooltip(date: string): string {
 
 	.live-calendar-weekday {
 		padding-bottom: 0.35rem;
+		border-bottom: 1px solid var(--line-divider);
 		text-align: center;
 		font-size: 0.7rem;
+		font-weight: 600;
 		letter-spacing: 0.02em;
 		color: var(--content-meta);
 	}
@@ -146,20 +180,20 @@ function cellTooltip(date: string): string {
 		justify-content: space-between;
 		gap: 0.2rem;
 		min-height: 3.4rem;
-		padding: 0.3rem 0.35rem 0.35rem;
+		padding: 0.3rem 0.35rem 0.4rem;
 		overflow: hidden;
-		border-radius: 0.65rem;
 		border: 1px solid transparent;
-		background-color: var(--btn-regular-bg);
+		border-radius: 0.7rem;
+		background-color: color-mix(in oklab, var(--btn-regular-bg) 55%, transparent);
 		color: var(--deep-text);
 		font-size: 0.75rem;
 		line-height: 1.15;
 		text-align: left;
 		cursor: pointer;
 		transition:
-			transform 150ms var(--ease-standard, ease),
-			box-shadow 150ms var(--ease-standard, ease),
-			background-color 150ms var(--ease-standard, ease);
+			transform 150ms ease,
+			box-shadow 150ms ease,
+			background-color 150ms ease;
 	}
 
 	.live-calendar-cell:disabled {
@@ -178,22 +212,36 @@ function cellTooltip(date: string): string {
 
 	.live-calendar-cell.is-out {
 		background-color: transparent;
-		opacity: 0.32;
+		opacity: 0.3;
+	}
+
+	.live-calendar-cell.is-future:not(.has-live) {
+		opacity: 0.55;
 	}
 
 	.live-calendar-cell.has-live {
-		background-color: color-mix(in oklab, var(--platform-color, var(--primary)) 12%, var(--btn-regular-bg));
-		border-color: color-mix(in oklab, var(--platform-color, var(--primary)) 40%, transparent);
+		background-color: color-mix(
+			in oklab,
+			var(--platform-color, var(--primary)) 14%,
+			var(--card-bg)
+		);
+		border-color: color-mix(
+			in oklab,
+			var(--platform-color, var(--primary)) 35%,
+			transparent
+		);
 	}
 
 	.live-calendar-cell.is-today {
-		outline: 1.5px dashed var(--primary);
-		outline-offset: -1px;
+		outline: 1.5px dashed
+			color-mix(in oklab, var(--primary) 70%, transparent);
+		outline-offset: -2px;
 	}
 
 	.live-calendar-cell.is-selected {
 		border-color: var(--platform-color, var(--primary));
-		box-shadow: 0 0 0 2px color-mix(in oklab, var(--platform-color, var(--primary)) 35%, transparent);
+		box-shadow: 0 0 0 2px
+			color-mix(in oklab, var(--platform-color, var(--primary)) 30%, transparent);
 	}
 
 	.live-calendar-day {
@@ -215,7 +263,6 @@ function cellTooltip(date: string): string {
 		height: 0.4rem;
 		border-radius: 9999px;
 		background-color: #f43f5e;
-		box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.55);
 		animation: live-pulse 1.8s ease-out infinite;
 	}
 
@@ -280,8 +327,44 @@ function cellTooltip(date: string): string {
 		background: linear-gradient(
 			to right,
 			var(--platform-color, var(--primary)),
-			color-mix(in oklab, var(--platform-color, var(--primary)) 40%, transparent)
+			color-mix(in oklab, var(--platform-color, var(--primary)) 35%, transparent)
 		);
+	}
+
+	.live-calendar-legend {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.75rem;
+		margin-top: 0.7rem;
+		font-size: 0.68rem;
+		color: var(--content-meta);
+	}
+
+	.live-calendar-legend-item {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.live-calendar-legend-dot {
+		width: 0.4rem;
+		height: 0.4rem;
+		border-radius: 9999px;
+	}
+
+	.live-calendar-legend-today {
+		width: 0.5rem;
+		height: 0.5rem;
+		border-radius: 0.15rem;
+		border: 1.5px dashed color-mix(in oklab, var(--primary) 70%, transparent);
+	}
+
+	.live-calendar-legend-live {
+		width: 0.4rem;
+		height: 0.4rem;
+		border-radius: 9999px;
+		background-color: #f43f5e;
 	}
 
 	@media (min-width: 640px) {
@@ -291,7 +374,7 @@ function cellTooltip(date: string): string {
 
 		.live-calendar-cell {
 			min-height: 4.6rem;
-			padding: 0.4rem 0.45rem 0.45rem;
+			padding: 0.4rem 0.45rem 0.5rem;
 			font-size: 0.8rem;
 		}
 

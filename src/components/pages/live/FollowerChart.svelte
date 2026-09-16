@@ -25,6 +25,8 @@ const points = $derived(series.points);
 const scale = $derived(Math.max(series.maxDelta, Math.abs(series.minDelta), 1));
 /** 横轴标签抽稀步长，避免拥挤 */
 const labelStep = $derived(Math.max(1, Math.ceil(points.length / 8)));
+/** 是否已经有两天的数据可以用来算增减 */
+const hasDeltas = $derived(points.some((point) => point.delta !== null));
 
 const hovered = $derived(
 	hoveredIndex === null ? null : (points[hoveredIndex] ?? null),
@@ -92,94 +94,112 @@ function shortDate(date: string): string {
 
 	{#if points.length > 0}
 		<div class="follower-chart-plot">
-			<!-- 增长区间 -->
-			<div class="follower-chart-bars" onmouseleave={() => (hoveredIndex = null)}>
-				<div class="follower-chart-axis-line" aria-hidden="true"></div>
-				{#each points as point, index (point.date)}
-					<button
-						type="button"
-						class="follower-chart-col"
-						aria-label={`${point.date} ${formatSigned(point.delta ?? 0, locale)}`}
-						onmouseenter={() => (hoveredIndex = index)}
-						onfocus={() => (hoveredIndex = index)}
-						onblur={() => (hoveredIndex = null)}
-						onclick={() => (hoveredIndex = hoveredIndex === index ? null : index)}
-					>
-						<span class="follower-chart-half is-up">
-							{#if point.delta !== null && point.delta > 0}
-								<span
-									class="follower-chart-bar is-up"
-									style={`height: ${barHeight(point.delta)}%`}
-								></span>
-							{/if}
-						</span>
-						<span class="follower-chart-half is-down">
-							{#if point.delta !== null && point.delta < 0}
-								<span
-									class="follower-chart-bar is-down"
-									style={`height: ${barHeight(point.delta)}%`}
-								></span>
-							{/if}
-						</span>
-					</button>
-				{/each}
+			<!-- 纵轴刻度：+最大增幅 / 0 / 最大降幅 -->
+			<div class="follower-chart-axis" aria-hidden="true">
+				<span class="follower-chart-axis-top">
+					{series.maxDelta > 0 ? `+${formatNumber(series.maxDelta, locale)}` : ""}
+				</span>
+				<span class="follower-chart-axis-zero">0</span>
+				<span class="follower-chart-axis-bottom">
+					{series.minDelta < 0 ? formatNumber(series.minDelta, locale) : ""}
+				</span>
+			</div>
 
-				{#if hovered !== null && hoveredIndex !== null}
-					<div
-						class="follower-chart-tooltip"
-						style={`left: ${((hoveredIndex + 0.5) / points.length) * 100}%`}
-					>
-						<div class="follower-chart-tooltip-date">{hovered.date}</div>
-						<div class="follower-chart-tooltip-row">
-							<span>{i18n(I18nKey.liveReportFollowerTotal)}</span>
-							<strong>{formatNumber(hovered.total, locale)}</strong>
-						</div>
-						<div
-							class="follower-chart-tooltip-row"
-							class:is-up={(hovered.delta ?? 0) > 0}
-							class:is-down={(hovered.delta ?? 0) < 0}
+			<div class="follower-chart-main">
+				<div
+					class="follower-chart-bars"
+					onmouseleave={() => (hoveredIndex = null)}
+				>
+					<div class="follower-chart-axis-line" aria-hidden="true"></div>
+					{#each points as point, index (point.date)}
+						<button
+							type="button"
+							class="follower-chart-col"
+							aria-label={`${point.date} ${formatSigned(point.delta ?? 0, locale)}`}
+							onmouseenter={() => (hoveredIndex = index)}
+							onfocus={() => (hoveredIndex = index)}
+							onblur={() => (hoveredIndex = null)}
+							onclick={() =>
+								(hoveredIndex = hoveredIndex === index ? null : index)}
 						>
-							<span>
-								{(hovered.delta ?? 0) > 0
-									? i18n(I18nKey.liveReportIncrease)
-									: (hovered.delta ?? 0) < 0
-										? i18n(I18nKey.liveReportDecrease)
-										: i18n(I18nKey.liveReportBaseline)}
+							<span class="follower-chart-half is-up">
+								{#if point.delta !== null && point.delta > 0}
+									<span
+										class="follower-chart-bar is-up"
+										style={`height: ${barHeight(point.delta)}%`}
+									></span>
+								{/if}
 							</span>
-							<strong>
-								{hovered.delta === null
-									? i18n(I18nKey.liveReportBaseline)
-									: formatSigned(hovered.delta, locale)}
-							</strong>
+							<span class="follower-chart-half is-down">
+								{#if point.delta !== null && point.delta < 0}
+									<span
+										class="follower-chart-bar is-down"
+										style={`height: ${barHeight(point.delta)}%`}
+									></span>
+								{/if}
+							</span>
+						</button>
+					{/each}
+
+					{#if hovered !== null && hoveredIndex !== null}
+						<div
+							class="follower-chart-tooltip"
+							style={`left: ${((hoveredIndex + 0.5) / points.length) * 100}%`}
+						>
+							<div class="follower-chart-tooltip-date">{hovered.date}</div>
+							<div class="follower-chart-tooltip-row">
+								<span>{i18n(I18nKey.liveReportFollowerTotal)}</span>
+								<strong>{formatNumber(hovered.total, locale)}</strong>
+							</div>
+							<div
+								class="follower-chart-tooltip-row"
+								class:is-up={(hovered.delta ?? 0) > 0}
+								class:is-down={(hovered.delta ?? 0) < 0}
+							>
+								<span>
+									{(hovered.delta ?? 0) > 0
+										? i18n(I18nKey.liveReportIncrease)
+										: (hovered.delta ?? 0) < 0
+											? i18n(I18nKey.liveReportDecrease)
+											: i18n(I18nKey.liveReportBaseline)}
+								</span>
+								<strong>
+									{hovered.delta === null
+										? i18n(I18nKey.liveReportBaseline)
+										: formatSigned(hovered.delta, locale)}
+								</strong>
+							</div>
 						</div>
-					</div>
-				{/if}
-			</div>
+					{/if}
+				</div>
 
-			<!-- 横轴日期 -->
-			<div class="follower-chart-labels">
-				{#each points as point, index (point.date)}
-					<span class="follower-chart-label">
-						{index % labelStep === 0 || index === points.length - 1
-							? shortDate(point.date)
-							: ""}
+				<!-- 横轴日期 -->
+				<div class="follower-chart-labels">
+					{#each points as point, index (point.date)}
+						<span class="follower-chart-label">
+							{index % labelStep === 0 || index === points.length - 1
+								? shortDate(point.date)
+								: ""}
+						</span>
+					{/each}
+				</div>
+
+				<!-- 图例 / 提示 -->
+				<div class="follower-chart-legend">
+					<span class="follower-chart-legend-item">
+						<i class="follower-chart-legend-dot is-up"></i>
+						{i18n(I18nKey.liveReportIncrease)}
 					</span>
-				{/each}
-			</div>
-
-			<!-- 图例 -->
-			<div class="follower-chart-legend">
-				<span class="follower-chart-legend-item is-up">
-					<i class="follower-chart-legend-dot is-up"></i>
-					{i18n(I18nKey.liveReportIncrease)}
-				</span>
-				<span class="follower-chart-legend-item is-down">
-					<i class="follower-chart-legend-dot is-down"></i>
-					{i18n(I18nKey.liveReportDecrease)}
-				</span>
-				<span class="follower-chart-legend-note">
-					{i18n(I18nKey.liveReportFollowerChartDesc)}
-				</span>
+					<span class="follower-chart-legend-item">
+						<i class="follower-chart-legend-dot is-down"></i>
+						{i18n(I18nKey.liveReportDecrease)}
+					</span>
+					{#if !hasDeltas}
+						<span class="follower-chart-legend-note">
+							{i18n(I18nKey.liveReportFollowerBaselineHint)}
+						</span>
+					{/if}
+				</div>
 			</div>
 		</div>
 	{:else}
@@ -191,10 +211,13 @@ function shortDate(date: string): string {
 
 <style>
 	.follower-chart {
-		border-radius: var(--radius-large, 1rem);
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		padding: 0.85rem 0.9rem 0.7rem;
 		border: 1px solid var(--line-divider);
-		background-color: var(--card-bg);
-		padding: 0.85rem 0.9rem 0.75rem;
+		border-radius: 0.95rem;
+		background-color: var(--btn-plain-bg-active);
 	}
 
 	.follower-chart-head {
@@ -202,8 +225,7 @@ function shortDate(date: string): string {
 		flex-wrap: wrap;
 		align-items: center;
 		justify-content: space-between;
-		gap: 0.5rem;
-		margin-bottom: 0.5rem;
+		gap: 0.4rem;
 	}
 
 	.follower-chart-platform {
@@ -214,15 +236,15 @@ function shortDate(date: string): string {
 	}
 
 	.follower-chart-badge {
-		width: 0.55rem;
-		height: 0.55rem;
-		border-radius: 9999px;
 		flex: none;
+		width: 0.5rem;
+		height: 0.5rem;
+		border-radius: 9999px;
 	}
 
 	.follower-chart-name {
-		font-weight: 600;
 		font-size: 0.9rem;
+		font-weight: 700;
 		color: var(--deep-text);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -231,11 +253,11 @@ function shortDate(date: string): string {
 
 	.follower-chart-tag {
 		flex: none;
-		font-size: 0.68rem;
-		padding: 0.05rem 0.35rem;
+		padding: 0.05rem 0.4rem;
 		border-radius: 9999px;
-		color: var(--content-meta);
 		background-color: var(--btn-regular-bg);
+		font-size: 0.68rem;
+		color: var(--content-meta);
 	}
 
 	.follower-chart-metrics {
@@ -245,7 +267,7 @@ function shortDate(date: string): string {
 	}
 
 	.follower-chart-metric {
-		display: flex;
+		display: inline-flex;
 		align-items: baseline;
 		gap: 0.3rem;
 	}
@@ -273,8 +295,31 @@ function shortDate(date: string): string {
 		color: oklch(0.6 0.19 20);
 	}
 
+	/* 纵轴刻度 + 图表主体 */
 	.follower-chart-plot {
-		position: relative;
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		gap: 0.4rem;
+	}
+
+	.follower-chart-axis {
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+		height: 9.5rem;
+		padding-bottom: 0.1rem;
+		font-size: 0.62rem;
+		font-variant-numeric: tabular-nums;
+		color: var(--content-meta);
+		text-align: right;
+	}
+
+	.follower-chart-axis-zero {
+		opacity: 0.7;
+	}
+
+	.follower-chart-main {
+		min-width: 0;
 	}
 
 	.follower-chart-bars {
@@ -283,7 +328,6 @@ function shortDate(date: string): string {
 		align-items: stretch;
 		gap: 2px;
 		height: 9.5rem;
-		padding: 0 0.1rem;
 	}
 
 	.follower-chart-axis-line {
@@ -299,25 +343,29 @@ function shortDate(date: string): string {
 		position: relative;
 		z-index: 1;
 		flex: 1 1 0;
-		min-width: 2px;
 		display: flex;
 		flex-direction: column;
-		background: none;
-		border: none;
+		min-width: 2px;
 		padding: 0;
+		border: none;
+		background: none;
 		cursor: pointer;
+		border-radius: 0.2rem;
+	}
+
+	.follower-chart-col:hover {
+		background-color: color-mix(in oklab, var(--primary) 8%, transparent);
 	}
 
 	.follower-chart-col:focus-visible {
 		outline: 2px solid var(--primary);
 		outline-offset: 1px;
-		border-radius: 0.25rem;
 	}
 
 	.follower-chart-half {
 		display: flex;
-		height: 50%;
 		width: 100%;
+		height: 50%;
 	}
 
 	.follower-chart-half.is-up {
@@ -338,7 +386,7 @@ function shortDate(date: string): string {
 	.follower-chart-bar.is-up {
 		background: linear-gradient(
 			to top,
-			color-mix(in oklab, oklch(0.62 0.15 155) 65%, transparent),
+			color-mix(in oklab, oklch(0.62 0.15 155) 55%, transparent),
 			oklch(0.62 0.15 155)
 		);
 	}
@@ -346,19 +394,19 @@ function shortDate(date: string): string {
 	.follower-chart-bar.is-down {
 		background: linear-gradient(
 			to bottom,
-			color-mix(in oklab, oklch(0.6 0.19 20) 65%, transparent),
+			color-mix(in oklab, oklch(0.6 0.19 20) 55%, transparent),
 			oklch(0.6 0.19 20)
 		);
 	}
 
 	.follower-chart-col:hover .follower-chart-bar {
-		filter: brightness(1.12) saturate(1.15);
+		filter: brightness(1.1) saturate(1.15);
 	}
 
 	.follower-chart-labels {
 		display: flex;
 		gap: 2px;
-		padding: 0.25rem 0.1rem 0;
+		padding-top: 0.2rem;
 	}
 
 	.follower-chart-label {
@@ -366,30 +414,30 @@ function shortDate(date: string): string {
 		min-width: 0;
 		text-align: center;
 		font-size: 0.62rem;
-		color: var(--content-meta);
 		font-variant-numeric: tabular-nums;
+		color: var(--content-meta);
 		white-space: nowrap;
 	}
 
 	.follower-chart-tooltip {
 		position: absolute;
-		bottom: calc(100% + 0.35rem);
-		transform: translateX(-50%);
+		bottom: calc(100% + 0.3rem);
 		z-index: 5;
 		min-width: 7.5rem;
 		padding: 0.4rem 0.55rem;
-		border-radius: 0.6rem;
 		border: 1px solid var(--line-divider);
+		border-radius: 0.6rem;
 		background-color: var(--float-panel-bg);
 		box-shadow: var(--shadow-md);
 		font-size: 0.72rem;
 		color: var(--deep-text);
+		transform: translateX(-50%);
 		pointer-events: none;
 	}
 
 	.follower-chart-tooltip-date {
-		font-weight: 600;
 		margin-bottom: 0.15rem;
+		font-weight: 600;
 		color: var(--content-meta);
 	}
 
@@ -412,7 +460,7 @@ function shortDate(date: string): string {
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.6rem;
-		margin-top: 0.35rem;
+		margin-top: 0.3rem;
 		font-size: 0.68rem;
 		color: var(--content-meta);
 	}
@@ -443,9 +491,12 @@ function shortDate(date: string): string {
 	}
 
 	.follower-chart-empty {
+		margin-top: 0.35rem;
 		padding: 2rem 0;
+		border: 1px dashed var(--line-divider);
+		border-radius: 0.7rem;
 		text-align: center;
-		font-size: 0.8rem;
+		font-size: 0.78rem;
 		color: var(--content-meta);
 	}
 </style>

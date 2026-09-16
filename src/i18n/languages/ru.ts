@@ -289,6 +289,8 @@ export const ru: Translation = {
 		"Ежедневный прирост и убыль подписчиков по платформам",
 	[Key.liveReportFollowerTotal]: "Подписчиков",
 	[Key.liveReportNetChange]: "Чистое изменение",
+	[Key.liveReportFollowerBaselineHint]:
+		"Для графика изменений нужно минимум два снимка",
 	[Key.liveReportIncrease]: "Прирост",
 	[Key.liveReportDecrease]: "Убыль",
 	[Key.liveReportNoData]: "Нет данных",

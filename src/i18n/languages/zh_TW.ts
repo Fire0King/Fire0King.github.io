@@ -285,6 +285,8 @@ export const zh_TW: Translation = {
 	[Key.liveReportFollowerChartDesc]: "柱狀圖展示各平台每日粉絲的增減情況",
 	[Key.liveReportFollowerTotal]: "當前粉絲",
 	[Key.liveReportNetChange]: "區間淨增",
+	[Key.liveReportFollowerBaselineHint]:
+		"還需要至少兩天的快照資料，才能看出每日增減",
 	[Key.liveReportIncrease]: "增",
 	[Key.liveReportDecrease]: "減",
 	[Key.liveReportNoData]: "暫無資料",

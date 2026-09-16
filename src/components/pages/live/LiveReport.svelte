@@ -120,6 +120,68 @@ const hasFollowerData = $derived(
 	platforms.some((item) => (followers[item]?.points?.length ?? 0) > 0),
 );
 
+/** 月度统计卡片数据 */
+const stats = $derived.by(() => {
+	const hourUnit = i18n(I18nKey.liveReportHourUnit);
+	const minuteUnit = i18n(I18nKey.liveReportMinuteUnit);
+	return [
+		{
+			key: "days",
+			icon: "calendar" as const,
+			label: i18n(I18nKey.liveReportLiveDays),
+			value: String(calendar.stats.liveDays),
+			unit: i18n(I18nKey.liveReportDayUnit),
+		},
+		{
+			key: "streams",
+			icon: "broadcast" as const,
+			label: i18n(I18nKey.liveReportStreamCount),
+			value: String(calendar.stats.streamCount),
+			unit: "",
+		},
+		{
+			key: "total",
+			icon: "clock" as const,
+			label: i18n(I18nKey.liveReportTotalDuration),
+			value: formatDuration(
+				calendar.stats.totalDurationSeconds,
+				hourUnit,
+				minuteUnit,
+			),
+			unit: "",
+		},
+		{
+			key: "average",
+			icon: "chart" as const,
+			label: i18n(I18nKey.liveReportAverageDuration),
+			value: formatDuration(
+				calendar.stats.averageDurationSeconds,
+				hourUnit,
+				minuteUnit,
+			),
+			unit: "",
+		},
+		{
+			key: "longest",
+			icon: "trophy" as const,
+			label: i18n(I18nKey.liveReportLongestDuration),
+			value: formatDuration(
+				calendar.stats.longestDurationSeconds,
+				hourUnit,
+				minuteUnit,
+			),
+			unit: "",
+		},
+		{
+			key: "streak",
+			icon: "star" as const,
+			label: i18n(I18nKey.liveReportStreak),
+			value: String(calendar.stats.streakDays),
+			unit: i18n(I18nKey.liveReportDayUnit),
+		},
+	];
+});
+
 function platformLabel(item: LivePlatformId): string {
 	return item === "bilibili"
 		? i18n(I18nKey.liveReportPlatformBilibili)
@@ -137,8 +199,8 @@ function shiftMonth(delta: number): void {
 	selectedDate = null;
 }
 
-/** 直播中已持续的时长（分钟） */
-function activeElapsedMinutes(start: string): string {
+/** 直播中已持续的时长 */
+function activeElapsed(start: string): string {
 	const minutes = Math.max(
 		0,
 		Math.round((Date.now() - new Date(start).getTime()) / 60000),
@@ -152,12 +214,12 @@ function activeElapsedMinutes(start: string): string {
 </script>
 
 <div class="live-report">
-	<!-- 控制条：月份切换 + 平台筛选 + 直播中提示 -->
+	<!-- 控制条：月份切换 + 直播中 + 平台筛选 -->
 	<div class="live-report-toolbar">
 		<div class="live-report-month">
 			<button
 				type="button"
-				class="live-report-icon-btn"
+				class="live-report-step"
 				title={i18n(I18nKey.liveReportPrevMonth)}
 				aria-label={i18n(I18nKey.liveReportPrevMonth)}
 				onclick={() => shiftMonth(-1)}
@@ -180,17 +242,26 @@ function activeElapsedMinutes(start: string): string {
 			</select>
 			<button
 				type="button"
-				class="live-report-icon-btn"
+				class="live-report-step"
 				title={i18n(I18nKey.liveReportNextMonth)}
 				aria-label={i18n(I18nKey.liveReportNextMonth)}
 				onclick={() => shiftMonth(1)}
 			>
 				<LiveIcon name="chevronRight" class="h-4 w-4" />
 			</button>
-			<span class="live-report-month-label">{monthLabel}</span>
 		</div>
 
 		<div class="live-report-toolbar-right">
+			{#if activeList.length > 0}
+				<span class="live-report-live-badge">
+					<span class="live-report-live-dot" aria-hidden="true"></span>
+					{i18n(I18nKey.liveReportStreaming)}
+					<span class="live-report-live-detail">
+						{activeList.map((item) => platformLabel(item.platform)).join(" / ")}
+					</span>
+				</span>
+			{/if}
+
 			{#if platforms.length > 1}
 				<div class="live-report-chips">
 					<button
@@ -208,37 +279,35 @@ function activeElapsedMinutes(start: string): string {
 							class:is-active={platform === item}
 							onclick={() => (platform = item)}
 						>
+							<span
+								class="live-report-chip-dot"
+								class:is-bilibili={item === "bilibili"}
+								class:is-douyin={item === "douyin"}
+								aria-hidden="true"
+							></span>
 							{platformChipLabel(item)}
 						</button>
 					{/each}
 				</div>
 			{/if}
-
-			{#if activeList.length > 0}
-				<div class="live-report-live-badge">
-					<span class="live-report-live-dot" aria-hidden="true"></span>
-					{i18n(I18nKey.liveReportStreaming)}
-					<span class="live-report-live-detail">
-						{activeList
-							.map((item) => platformLabel(item.platform))
-							.join(" / ")}
-					</span>
-				</div>
-			{/if}
 		</div>
 	</div>
 
-	<!-- 正在直播的场次 -->
+	<!-- 正在直播 -->
 	{#if activeList.length > 0}
 		<div class="live-report-active-list">
 			{#each activeList as item (item.platform)}
 				<div class="live-report-active-item">
-					<span class="live-report-active-platform">
+					<span
+						class="live-report-active-platform"
+						class:is-bilibili={item.platform === "bilibili"}
+						class:is-douyin={item.platform === "douyin"}
+					>
 						{platformLabel(item.platform)}
 					</span>
 					<span class="live-report-active-title">{item.title}</span>
 					<span class="live-report-active-time">
-						{toClock(item.start, timezone)} · {activeElapsedMinutes(item.start)}
+						{toClock(item.start, timezone)} · {activeElapsed(item.start)}
 					</span>
 					{#if item.url}
 						<a
@@ -258,80 +327,24 @@ function activeElapsedMinutes(start: string): string {
 
 	<!-- 月度统计 -->
 	<div class="live-report-stats">
-		<div class="live-report-stat">
-			<LiveIcon name="calendar" class="live-report-stat-icon" />
-			<span class="live-report-stat-label">
-				{i18n(I18nKey.liveReportLiveDays)}
-			</span>
-			<span class="live-report-stat-value">
-				{calendar.stats.liveDays}
-				<small>{i18n(I18nKey.liveReportDayUnit)}</small>
-			</span>
-		</div>
-		<div class="live-report-stat">
-			<LiveIcon name="broadcast" class="live-report-stat-icon" />
-			<span class="live-report-stat-label">
-				{i18n(I18nKey.liveReportStreamCount)}
-			</span>
-			<span class="live-report-stat-value">{calendar.stats.streamCount}</span>
-		</div>
-		<div class="live-report-stat">
-			<LiveIcon name="clock" class="live-report-stat-icon" />
-			<span class="live-report-stat-label">
-				{i18n(I18nKey.liveReportTotalDuration)}
-			</span>
-			<span class="live-report-stat-value">
-				{formatDuration(
-					calendar.stats.totalDurationSeconds,
-					i18n(I18nKey.liveReportHourUnit),
-					i18n(I18nKey.liveReportMinuteUnit),
-				)}
-			</span>
-		</div>
-		<div class="live-report-stat">
-			<LiveIcon name="chart" class="live-report-stat-icon" />
-			<span class="live-report-stat-label">
-				{i18n(I18nKey.liveReportAverageDuration)}
-			</span>
-			<span class="live-report-stat-value">
-				{formatDuration(
-					calendar.stats.averageDurationSeconds,
-					i18n(I18nKey.liveReportHourUnit),
-					i18n(I18nKey.liveReportMinuteUnit),
-				)}
-			</span>
-		</div>
-		<div class="live-report-stat">
-			<LiveIcon name="trophy" class="live-report-stat-icon" />
-			<span class="live-report-stat-label">
-				{i18n(I18nKey.liveReportLongestDuration)}
-			</span>
-			<span class="live-report-stat-value">
-				{formatDuration(
-					calendar.stats.longestDurationSeconds,
-					i18n(I18nKey.liveReportHourUnit),
-					i18n(I18nKey.liveReportMinuteUnit),
-				)}
-			</span>
-		</div>
-		<div class="live-report-stat">
-			<LiveIcon name="star" class="live-report-stat-icon" />
-			<span class="live-report-stat-label">
-				{i18n(I18nKey.liveReportStreak)}
-			</span>
-			<span class="live-report-stat-value">
-				{calendar.stats.streakDays}
-				<small>{i18n(I18nKey.liveReportDayUnit)}</small>
-			</span>
-		</div>
+		{#each stats as stat (stat.key)}
+			<div class="live-report-stat">
+				<span class="live-report-stat-label">
+					<LiveIcon name={stat.icon} class="h-3.5 w-3.5" />
+					{stat.label}
+				</span>
+				<span class="live-report-stat-value">
+					{stat.value}{#if stat.unit}<small>{stat.unit}</small>{/if}
+				</span>
+			</div>
+		{/each}
 	</div>
 
-	<!-- 月历 -->
+	<!-- 直播月历 -->
 	<section class="live-report-card">
 		<header class="live-report-card-head">
 			<div>
 				<h3 class="live-report-card-title">
-					<LiveIcon name="calendar" class="live-report-card-title-icon" />
 					{i18n(I18nKey.liveReportCalendar)}
 				</h3>
 				<p class="live-report-card-desc">
@@ -341,6 +354,11 @@ function activeElapsedMinutes(start: string): string {
 			<div class="live-report-platform-days">
 				{#each platforms as item (item)}
 					<span class="live-report-platform-day">
+						<i
+							class="live-report-platform-dot"
+							class:is-bilibili={item === "bilibili"}
+							class:is-douyin={item === "douyin"}
+						></i>
 						{platformLabel(item)}
 						<strong>{calendar.stats.platformDays[item] ?? 0}</strong>
 						{i18n(I18nKey.liveReportDayUnit)}
@@ -361,9 +379,7 @@ function activeElapsedMinutes(start: string): string {
 		<!-- 选中日详情 -->
 		<div class="live-report-day">
 			{#if !selectedDate}
-				<p class="live-report-day-hint">
-					{i18n(I18nKey.liveReportSelectDayHint)}
-				</p>
+				<p class="live-report-hint">{i18n(I18nKey.liveReportSelectDayHint)}</p>
 			{:else if selectedDay?.summary}
 				<div class="live-report-day-head">
 					<span class="live-report-day-date">{selectedDate}</span>
@@ -373,8 +389,7 @@ function activeElapsedMinutes(start: string): string {
 						</span>
 					{/if}
 					<span class="live-report-day-total">
-						{i18n(I18nKey.liveReportDuration)}
-						·
+						{i18n(I18nKey.liveReportDuration)} ·
 						{formatDuration(
 							selectedDay.summary.totalDurationSeconds,
 							i18n(I18nKey.liveReportHourUnit),
@@ -415,6 +430,7 @@ function activeElapsedMinutes(start: string): string {
 									target="_blank"
 									rel="noopener noreferrer"
 									aria-label={i18n(I18nKey.liveReportOpenRoom)}
+									title={i18n(I18nKey.liveReportOpenRoom)}
 								>
 									<LiveIcon name="external" class="h-3.5 w-3.5" />
 								</a>
@@ -423,9 +439,7 @@ function activeElapsedMinutes(start: string): string {
 					{/each}
 				</ul>
 			{:else}
-				<p class="live-report-day-hint">
-					{i18n(I18nKey.liveReportNoStreamThisDay)}
-				</p>
+				<p class="live-report-hint">{i18n(I18nKey.liveReportNoStreamThisDay)}</p>
 			{/if}
 		</div>
 	</section>
@@ -435,7 +449,6 @@ function activeElapsedMinutes(start: string): string {
 		<header class="live-report-card-head">
 			<div>
 				<h3 class="live-report-card-title">
-					<LiveIcon name="chart" class="live-report-card-title-icon" />
 					{i18n(I18nKey.liveReportFollowerChart)}
 				</h3>
 				<p class="live-report-card-desc">
@@ -452,9 +465,7 @@ function activeElapsedMinutes(start: string): string {
 				{/each}
 			</div>
 		{:else}
-			<p class="live-report-day-hint">
-				{i18n(I18nKey.liveReportNoFollowerData)}
-			</p>
+			<p class="live-report-hint">{i18n(I18nKey.liveReportNoFollowerData)}</p>
 		{/if}
 	</section>
 </div>
@@ -463,56 +474,70 @@ function activeElapsedMinutes(start: string): string {
 	.live-report {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.9rem;
 	}
 
+	/* ── 控制条 ────────────────────────────────────────── */
 	.live-report-toolbar {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.6rem;
+		padding: 0.45rem 0.6rem;
+		border-radius: var(--radius-large, 1rem);
+		border: 1px solid var(--line-divider);
+		background-color: var(--card-bg);
 	}
 
 	.live-report-month {
 		display: flex;
 		align-items: center;
-		gap: 0.35rem;
+		gap: 0.15rem;
 	}
 
-	.live-report-icon-btn {
+	.live-report-step {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 1.9rem;
-		height: 1.9rem;
-		border-radius: 0.6rem;
-		border: 1px solid var(--line-divider);
+		width: 1.85rem;
+		height: 1.85rem;
+		border-radius: 0.55rem;
+		border: none;
+		background: transparent;
+		color: var(--content-meta);
+		cursor: pointer;
+		transition:
+			background-color 150ms ease,
+			color 150ms ease;
+	}
+
+	.live-report-step:hover {
 		background-color: var(--btn-regular-bg);
 		color: var(--btn-content);
+	}
+
+	.live-report-step:focus-visible,
+	.live-report-chip:focus-visible,
+	.live-report-month-select:focus-visible {
+		outline: 2px solid var(--primary);
+		outline-offset: 1px;
+	}
+
+	.live-report-month-select {
+		padding: 0.25rem 0.4rem;
+		border: none;
+		border-radius: 0.55rem;
+		background: transparent;
+		color: var(--deep-text);
+		font-size: 0.95rem;
+		font-weight: 700;
 		cursor: pointer;
 		transition: background-color 150ms ease;
 	}
 
-	.live-report-icon-btn:hover {
-		background-color: var(--btn-regular-bg-hover);
-	}
-
-	.live-report-month-select {
-		padding: 0.3rem 0.5rem;
-		border-radius: 0.6rem;
-		border: 1px solid var(--line-divider);
-		background-color: var(--card-bg);
-		color: var(--deep-text);
-		font-size: 0.85rem;
-		cursor: pointer;
-	}
-
-	.live-report-month-label {
-		display: none;
-		font-size: 1.05rem;
-		font-weight: 700;
-		color: var(--deep-text);
+	.live-report-month-select:hover {
+		background-color: var(--btn-regular-bg);
 	}
 
 	.live-report-toolbar-right {
@@ -524,13 +549,17 @@ function activeElapsedMinutes(start: string): string {
 
 	.live-report-chips {
 		display: inline-flex;
+		align-items: center;
+		gap: 0.1rem;
 		padding: 0.15rem;
-		gap: 0.15rem;
 		border-radius: 9999px;
 		background-color: var(--btn-regular-bg);
 	}
 
 	.live-report-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.28rem;
 		padding: 0.2rem 0.6rem;
 		border: none;
 		border-radius: 9999px;
@@ -543,16 +572,36 @@ function activeElapsedMinutes(start: string): string {
 			color 150ms ease;
 	}
 
+	.live-report-chip:hover {
+		color: var(--deep-text);
+	}
+
 	.live-report-chip.is-active {
-		background-color: var(--primary);
-		color: white;
+		background-color: var(--card-bg);
+		color: var(--deep-text);
+		font-weight: 600;
+		box-shadow: var(--shadow-sm);
+	}
+
+	.live-report-chip-dot {
+		width: 0.4rem;
+		height: 0.4rem;
+		border-radius: 9999px;
+	}
+
+	.live-report-chip-dot.is-bilibili {
+		background-color: #fb7299;
+	}
+
+	.live-report-chip-dot.is-douyin {
+		background-color: #22c9d6;
 	}
 
 	.live-report-live-badge {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.3rem;
-		padding: 0.22rem 0.6rem;
+		padding: 0.2rem 0.6rem;
 		border-radius: 9999px;
 		background-color: rgba(244, 63, 94, 0.12);
 		color: #e11d48;
@@ -585,6 +634,7 @@ function activeElapsedMinutes(start: string): string {
 		}
 	}
 
+	/* ── 正在直播 ──────────────────────────────────────── */
 	.live-report-active-list {
 		display: flex;
 		flex-direction: column;
@@ -596,22 +646,36 @@ function activeElapsedMinutes(start: string): string {
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.5rem;
-		padding: 0.55rem 0.7rem;
+		padding: 0.6rem 0.75rem;
+		border: 1px solid rgba(244, 63, 94, 0.25);
+		border-left-width: 3px;
 		border-radius: 0.75rem;
-		border: 1px solid rgba(244, 63, 94, 0.28);
-		background-color: rgba(244, 63, 94, 0.07);
+		background-color: rgba(244, 63, 94, 0.06);
 		font-size: 0.82rem;
 		color: var(--deep-text);
 	}
 
 	.live-report-active-platform {
-		font-weight: 700;
-		color: #e11d48;
+		flex: none;
+		padding: 0.05rem 0.4rem;
+		border-radius: 9999px;
+		font-size: 0.68rem;
+		font-weight: 600;
+		color: white;
+	}
+
+	.live-report-active-platform.is-bilibili {
+		background-color: #fb7299;
+	}
+
+	.live-report-active-platform.is-douyin {
+		background-color: #22c9d6;
 	}
 
 	.live-report-active-title {
 		flex: 1 1 12rem;
 		min-width: 0;
+		font-weight: 500;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -629,6 +693,7 @@ function activeElapsedMinutes(start: string): string {
 		color: var(--btn-content);
 	}
 
+	/* ── 统计卡片 ──────────────────────────────────────── */
 	.live-report-stats {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -638,38 +703,45 @@ function activeElapsedMinutes(start: string): string {
 	.live-report-stat {
 		display: flex;
 		flex-direction: column;
-		gap: 0.15rem;
+		gap: 0.3rem;
 		padding: 0.7rem 0.8rem;
 		border-radius: 0.85rem;
 		border: 1px solid var(--line-divider);
 		background-color: var(--card-bg);
+		transition:
+			transform 150ms ease,
+			border-color 150ms ease;
 	}
 
-	.live-report-stat-icon {
-		width: 1.05rem;
-		height: 1.05rem;
-		color: var(--btn-content);
+	.live-report-stat:hover {
+		transform: translateY(-1px);
+		border-color: color-mix(in oklab, var(--primary) 35%, var(--line-divider));
 	}
 
 	.live-report-stat-label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
 		font-size: 0.72rem;
 		color: var(--content-meta);
 	}
 
 	.live-report-stat-value {
-		font-size: 1.15rem;
+		font-size: 1.2rem;
 		font-weight: 700;
+		line-height: 1.15;
 		color: var(--deep-text);
 		font-variant-numeric: tabular-nums;
 	}
 
 	.live-report-stat-value small {
+		margin-left: 0.15rem;
 		font-size: 0.7rem;
 		font-weight: 500;
-		margin-left: 0.15rem;
 		color: var(--content-meta);
 	}
 
+	/* ── 卡片 ──────────────────────────────────────────── */
 	.live-report-card {
 		padding: 0.9rem;
 		border-radius: var(--radius-large, 1rem);
@@ -683,26 +755,29 @@ function activeElapsedMinutes(start: string): string {
 		align-items: flex-start;
 		justify-content: space-between;
 		gap: 0.5rem;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.8rem;
 	}
 
 	.live-report-card-title {
 		display: flex;
 		align-items: center;
-		gap: 0.35rem;
+		gap: 0.45rem;
 		font-size: 1rem;
 		font-weight: 700;
 		color: var(--deep-text);
 	}
 
-	.live-report-card-title-icon {
-		width: 1.05rem;
-		height: 1.05rem;
-		color: var(--primary);
+	/* 标题装饰：主题色短竖线（原来这里是大图标，去掉更干净） */
+	.live-report-card-title::before {
+		content: "";
+		width: 3px;
+		height: 0.95em;
+		border-radius: 9999px;
+		background-color: var(--primary);
 	}
 
 	.live-report-card-desc {
-		margin-top: 0.2rem;
+		margin-top: 0.25rem;
 		font-size: 0.75rem;
 		color: var(--content-meta);
 	}
@@ -710,14 +785,34 @@ function activeElapsedMinutes(start: string): string {
 	.live-report-platform-days {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem;
+		align-items: center;
+		gap: 0.6rem;
 		font-size: 0.72rem;
 		color: var(--content-meta);
 	}
 
+	.live-report-platform-day {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
 	.live-report-platform-day strong {
-		margin: 0 0.15rem;
 		color: var(--deep-text);
+	}
+
+	.live-report-platform-dot {
+		width: 0.4rem;
+		height: 0.4rem;
+		border-radius: 9999px;
+	}
+
+	.live-report-platform-dot.is-bilibili {
+		background-color: #fb7299;
+	}
+
+	.live-report-platform-dot.is-douyin {
+		background-color: #22c9d6;
 	}
 
 	.live-report-range {
@@ -725,13 +820,16 @@ function activeElapsedMinutes(start: string): string {
 		color: var(--content-meta);
 	}
 
+	/* ── 选中日详情 ────────────────────────────────────── */
 	.live-report-day {
 		margin-top: 0.85rem;
 		padding-top: 0.75rem;
 		border-top: 1px dashed var(--line-divider);
 	}
 
-	.live-report-day-hint {
+	.live-report-hint {
+		padding: 0.75rem 0;
+		text-align: center;
 		font-size: 0.78rem;
 		color: var(--content-meta);
 	}
@@ -777,11 +875,16 @@ function activeElapsedMinutes(start: string): string {
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.45rem;
-		padding: 0.45rem 0.6rem;
+		padding: 0.5rem 0.65rem;
 		border-radius: 0.7rem;
 		background-color: var(--btn-regular-bg);
 		font-size: 0.78rem;
 		color: var(--deep-text);
+		transition: background-color 150ms ease;
+	}
+
+	.live-report-stream:hover {
+		background-color: var(--btn-regular-bg-hover);
 	}
 
 	.live-report-stream-platform {
@@ -823,16 +926,23 @@ function activeElapsedMinutes(start: string): string {
 
 	.live-report-stream-manual {
 		flex: none;
-		font-size: 0.65rem;
 		padding: 0.05rem 0.35rem;
 		border-radius: 9999px;
 		border: 1px solid var(--line-divider);
+		font-size: 0.65rem;
 		color: var(--content-meta);
 	}
 
 	.live-report-stream-link {
 		flex: none;
+		display: inline-flex;
 		color: var(--btn-content);
+		opacity: 0.7;
+		transition: opacity 150ms ease;
+	}
+
+	.live-report-stream-link:hover {
+		opacity: 1;
 	}
 
 	.live-report-charts {
@@ -842,10 +952,6 @@ function activeElapsedMinutes(start: string): string {
 	}
 
 	@media (min-width: 640px) {
-		.live-report-month-label {
-			display: inline;
-		}
-
 		.live-report-stats {
 			grid-template-columns: repeat(3, minmax(0, 1fr));
 		}

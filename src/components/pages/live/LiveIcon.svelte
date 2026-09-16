@@ -21,10 +21,16 @@ type LiveIconName =
 
 interface Props {
 	name: LiveIconName;
+	/**
+	 * 尺寸/颜色类。
+	 * 注意：组件的根元素收不到父组件的 Svelte 作用域样式（父组件里写 .foo { width: … }
+	 * 这类规则会因为没有元素匹配而被裁掉，图标就会按浏览器默认尺寸撑开），
+	 * 所以尺寸请一律用 Tailwind 工具类（h-4 / w-4 等）或下面 svg 上的 1em 默认值。
+	 */
 	class?: string;
 }
 
-let { name, class: className = "h-4 w-4" }: Props = $props();
+let { name, class: className = "" }: Props = $props();
 
 const PATHS: Record<LiveIconName, string> = {
 	calendar:
@@ -49,6 +55,8 @@ const PATHS: Record<LiveIconName, string> = {
 
 <svg
 	class={className}
+	width="1em"
+	height="1em"
 	viewBox="0 0 24 24"
 	fill="none"
 	stroke="currentColor"
