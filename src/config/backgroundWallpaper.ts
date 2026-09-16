@@ -2,7 +2,7 @@ import type { BackgroundWallpaperConfig } from "@/types/backgroundWallpaper";
 
 export const backgroundWallpaper: BackgroundWallpaperConfig = {
 	// 壁纸模式："banner" 横幅壁纸，"fullscreen" 全屏壁纸，"overlay" 覆盖透明，"none" 纯色背景无壁纸
-	mode: "banner",
+	mode: "fullscreen",
 	// 是否启用背景视频播放，配置后将在导航栏显示视频播放按钮
 	playerEnable: true,
 	/**
@@ -73,7 +73,7 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 			// 是否启用主页横幅文字
 			enable: true,
 			// 主页横幅主标题
-			title: "Lovely firefly!",
+			title: "千宝观测站",
 			// 主页横幅主标题字体大小
 			titleSize: "4.5rem",
 			// 主页横幅副标题
@@ -100,7 +100,7 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 				pauseTime: 2000,
 			},
 			// 是否显示标题下方的链接图标
-			linksEnable: true,
+			linksEnable: false,
 			// 首页横幅标题下方的链接图标（可选，支持 showName 显示文字）
 			// 图标支持 Iconify 格式：fa7-brands:github、fa7-solid:envelope、mdi:rss 等
 			links: [
@@ -183,7 +183,7 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 		// 壁纸透明度
 		opacity: 0.8,
 		// 背景模糊度
-		blur: 10,
+		blur: 20,
 		// 卡片透明度，0-1之间，值越小越透明
 		cardOpacity: 0.6,
 	},
@@ -192,7 +192,7 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 	// 背景透明度(opacity)不适用（全屏壁纸不透明）；导航栏透明模式由 fullscreen.navbar.transparentMode 控制，脱离 banner 的 navbar 配置
 	fullscreen: {
 		// 布局模式："classic" 经典文档流全屏壁纸，"hero" 固定全屏首屏壁纸
-		layout: "classic",
+		layout: "hero",
 		// 图片位置
 		position: "center",
 		// 全屏壁纸模式的导航栏配置
