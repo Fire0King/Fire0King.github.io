@@ -2,6 +2,11 @@
 /**
  * 直播数据页面的整屏开场 hero
  *
+ * 渲染位置：MainGridLayout 的 `#page-hero-layer` —— <body> 直系、position: fixed、
+ * z-index 1090 的整屏层，盖在导航栏（z-80）与内容（z-30）之上，所以开场动画是页面
+ * 真正的最上层。不能放在壁纸层（#wallpaper-wrapper）里：那一层是 z-index -1 的独立
+ * 层叠上下文，放进去的东西永远盖不到导航栏上面。
+ *
  * 时序（默认值；帘子参数与 P3RE-Web-Effect 一致，后续阶段按本页需要扩展）：
  *   0s         蓝色波浪帘盖住整屏（浪尖为自备素材，内联 SVG）
  *   1s→4s      帘子整体向下退场，露出白底 + 标题/数据信息（此时文字为深色）
@@ -14,7 +19,7 @@
  * `html[data-wallpaper-mode="fullscreen"] #wallpaper-wrapper img { width:100%!important;
  *  height:100%!important; filter: blur(...)!important }`，任何放在壁纸层里的 <img>
  * 都会被拉成整屏并加模糊（这就是之前波浪又大又糊的原因）。内联 SVG 不受该规则影响，
- * 也方便用 CSS 覆盖素材里写死的 fill。
+ * 也方便用 CSS 覆盖素材里写死的 fill。现在 hero 虽然在壁纸层之外，内联 SVG 依然更省事。
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -305,16 +310,6 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 		display: none;
 	}
 
-	/*
-		主题自带的背景视频（导航栏播放按钮）一旦开始播放，会把自己那层的
-		#banner-overlay-container 整体 opacity:0（它以为这层只放首页文字），
-		而 hero 正好被 slot 进这一层，会被一起隐藏掉。这里用更高特异度保回来。
-	*/
-	html[data-bg-video-playing] #wallpaper-wrapper
-		:global(#banner-overlay-container) {
-		opacity: 1 !important;
-	}
-
 	/* ── 压暗层（随动画一起入场）──────────────────────── */
 	.live-hero-scrim {
 		position: absolute;
@@ -415,11 +410,11 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 	}
 
 	/*
-		壁纸层里有主题的全局规则 `html[...] #wallpaper-wrapper img { width:100%!important;
-		height:100%!important; object-fit:cover!important; filter:blur()!important }`，
-		会作用到这里的品牌图。选择器里多带一个类（.live-hero-logo）即可在特异度上压过它。
+		品牌图在 hero 图层里（#page-hero-layer），已经不受壁纸层那条
+		`#wallpaper-wrapper img { width/height 100% + blur }` 全局规则影响；
+		这里只按需要收一下尺寸，顺便用 !important 兜住将来别的全局 img 规则。
 	*/
-	html[data-wallpaper-mode] #wallpaper-wrapper :global(.live-hero-logo) {
+	:global(#page-hero-layer) .live-hero-logo {
 		width: auto !important;
 		height: auto !important;
 		max-width: 26vw;
@@ -580,7 +575,7 @@ const rootStyle = `--hero-wave: ${waveColor}; --curtain-delay: ${hero.curtainDel
 	}
 
 	@media (max-width: 767px) {
-		html[data-wallpaper-mode] #wallpaper-wrapper :global(.live-hero-logo) {
+		:global(#page-hero-layer) .live-hero-logo {
 			right: 8% !important;
 			max-width: 40vw;
 		}

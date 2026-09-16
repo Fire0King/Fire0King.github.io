@@ -150,8 +150,11 @@ const heroEnabled = liveReportConfig.hero.enable;
 		    已经结束/被跳过（Swup 切换、减少动效、样式晚到），事件不再触发，视频就永远不播
 		  · 自动播放被拦截时，在首次用户手势（点按/按键/滚动）后重试
 		  · 滚动时 hero 整体淡出；挂载瞬间不做淡出判断，避免切换页面时被误隐藏
+		  · hero 渲染在 MainGridLayout 的 #page-hero-layer（fixed、z-index 1090，盖住导航栏），
+		    所以首屏完整覆盖时这里主动吞掉点击（pointer-events: auto），避免点到被盖住的
+		    导航栏按钮、结果搜索面板开在 hero 底下看不见；开始淡出后立刻改回 none 让点击穿透
 		用自定义元素承载：connectedCallback 在每次进入本页（含 Swup 切换）重跑，
-		滚动监听 rAF 节流、只写 opacity。定义放 head，保证先于元素升级。
+		滚动监听 rAF 节流、只写 opacity/pointer-events。定义放 head，保证先于元素升级。
 	-->
 	<script slot="head" is:inline>
 		(function () {
@@ -361,18 +364,32 @@ const heroEnabled = liveReportConfig.hero.enable;
 					 * 背景循环动画继续（隐藏期间暂停，重新出现时恢复播放，省电且无缝）。
 					 */
 					this.hidden = false;
+					/** 首屏 55% 处的淡出进度（0 = hero 完整覆盖整屏） */
+					const scrollRatio = () =>
+						Math.min(
+							1,
+							Math.max(
+								0,
+								window.scrollY / ((window.innerHeight || 1) * 0.55),
+							),
+						);
+					/**
+					 * hero 是整屏最上层：完整覆盖时吞掉点击（否则会点到被盖住的导航栏按钮，
+					 * 搜索/主题面板开在 hero 底下，看起来像"点了没反应"）。开始淡出后
+					 * 立刻改回 none，把点击还给页面（浮动控件、看板娘等）。
+					 */
+					this.syncHitArea = (ratio) => {
+						this.style.pointerEvents = ratio > 0 ? "none" : "auto";
+					};
+					this.syncHitArea(scrollRatio());
 					this.onScroll = () => {
 						if (this.ticking) return;
 						this.ticking = true;
 						requestAnimationFrame(() => {
 							this.ticking = false;
-							const vh = window.innerHeight || 1;
-							// 首屏 55% 处淡完
-							const ratio = Math.min(
-								1,
-								Math.max(0, window.scrollY / (vh * 0.55)),
-							);
+							const ratio = scrollRatio();
 							this.style.opacity = String(1 - ratio);
+							this.syncHitArea(ratio);
 
 							const shouldHide = ratio >= 1;
 							if (shouldHide === this.hidden) return;

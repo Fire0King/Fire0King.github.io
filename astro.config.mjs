@@ -128,6 +128,7 @@ export default defineConfig({
 			containers: [
 				"#banner-overlay-container",
 				"#banner-dim-container",
+				"#page-hero-layer",
 				"#swup-container",
 				"#left-sidebar-dynamic",
 				"#right-sidebar-dynamic",

@@ -154,7 +154,33 @@ npx tsx scripts/live-data/verify-report-utils.mjs
 换成自己的视频只要替换文件或改 `backgroundVideos` 即可。视频未配置或加载失败时，
 会自动露出内置的 CSS 动画背景（深蓝底 + 漂移光带），不会出现空白首屏。
 
-#### 1.7.1 支持哪些视频格式
+#### 1.7.1 hero 渲染在哪一层（为什么能盖住导航栏）
+
+hero 由 `MainGridLayout` 渲染在 `#page-hero-layer`：`<body>` 直系的整屏固定层，
+`z-index: 1090`，所以开场动画是页面真正的最上层，导航栏（z-80）和内容（z-30）都在它下面。
+
+| z-index | 层 | 与 hero 的关系 |
+| --- | --- | --- |
+| 9999 | 分享海报 / 灯箱（portal 到 body） | 在 hero 之上（正常） |
+| 1100 | 移动端导航抽屉 `#nav-menu-panel` | 在 hero 之上（展开后不会被盖住；但首屏被 hero 覆盖时点不到导航栏上的开关按钮，下滑一点即可） |
+| **1090** | **`#page-hero-layer`（hero）** | — |
+| 1000 / 999 | 浮动控件、浮动目录、看板娘 | 在 hero 之下（开场时被盖住） |
+| 80 | 固定导航栏 | 在 hero 之下（开场时被盖住） |
+| 30 | 内容面板 `#content-panel` | 在 hero 之下 |
+
+两个容易踩的坑，改布局时注意：
+
+1. **不能放进 `#wallpaper-wrapper`**（原来的做法）。那是 `z-index: var(--overlay-z-index)`（默认 `-1`）
+   的独立层叠上下文，里面的任何东西都不可能盖到导航栏上面，动画会被导航栏“切一刀”。
+2. **`#page-hero-layer` 必须在 `astro.config.mjs` 的 swup `containers` 列表里**，
+   否则切走页面时 hero 会残留在 DOM 里（空页面下它就是个 `pointer-events: none` 的空容器，
+   不占位、不挡点击）。
+
+hero 覆盖整屏时会主动把 `pointer-events` 设成 `auto` 吞掉点击：否则用户点到被盖住的导航栏按钮，
+搜索/主题面板会开在 hero 底下，看起来像“点了没反应”。一开始下滑淡出就立刻改回 `none`，
+点击穿透还给页面（浮动控件、看板娘照常可用）。滚动本身不受影响。
+
+#### 1.7.2 支持哪些视频格式
 
 Firefly 本身**不限制**视频格式，hero 用的是浏览器原生 `<video>`（主题自带的壁纸播放器
 `BackgroundPlayer` 同理），能播什么完全由**浏览器**决定。实践上按兼容性从高到低：
@@ -187,7 +213,7 @@ ffmpeg -i in.webm -c:v libx264 -profile:v main -level 3.1 -pix_fmt yuv420p \
    生效，开场帘子、文字淡出、背景视频都会被跳过，直接显示白底 + 文字 + 按钮。
 3. **别用变量帧率 / 超长 GOP 的素材**：首帧迟迟解不出来时，观感就是“黑屏几秒才动”。
 
-#### 1.7.2 视频不播时怎么排查
+#### 1.7.3 视频不播时怎么排查
 
 hero 的脚本在控制台里留了线索，按 `F12` → Console / Network 看：
 
@@ -198,7 +224,7 @@ hero 的脚本在控制台里留了线索，按 `F12` → Console / Network 看�
 | Network 里视频 404 | 路径不对，或忘了提交到仓库；`backgroundVideos` 里写的是 `public` 下的绝对路径（如 `/videos/live-hero/fv_movie1.webm`） |
 | 视频只播了一遍就没了 | 第 1 段（intro）播完没接上第 2 段：确认 `backgroundVideos` 里给了两段，且第 2 个文件能正常加载 |
 | 首屏只有静止画面 / 一片深蓝渐变 | 命中了兜底状态（`data-hero-state="fallback"`）：视频被拦或解码失败，此时内置动画背景在工作 |
-| 点了导航栏的“播放背景视频”后 hero 消失 | 已修：主题那层播放时会隐藏 `#banner-overlay-container`，直播页用更高特异度的规则把 hero 保回来 |
+| 点了导航栏的“播放背景视频”后 hero 消失 | 已修：hero 已移出壁纸层与 `#banner-overlay-container`，主题那层的显隐影响不到它了 |
 
 ---
 

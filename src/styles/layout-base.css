@@ -104,6 +104,11 @@
   html[data-wallpaper-mode="fullscreen"] body:not(.is-home) .content-panel[data-hero-page] {
     --content-top: 100vh;
   }
+  /* 页面级 hero 现在是独立的整屏固定层（#page-hero-layer，z-index 1090），
+     和壁纸模式无关：任何模式下都要把首屏整屏让出来，否则内容会被 hero 盖住 */
+  html[data-wallpaper-mode] body:not(.is-home) .content-panel[data-hero-page] {
+    --content-top: 100vh;
+  }
 
   /* banner wrapper：统一顶到顶部、高 65vh（不再用 -30vh/translateY 抵消；短屏高度由 layout-styles 媒体查询覆盖） */
   html[data-wallpaper-mode="banner"] #wallpaper-wrapper {
