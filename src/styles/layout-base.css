@@ -106,13 +106,13 @@
   }
   /*
     Swup 切页时 #content-panel 不在替换容器列表里，data-hero-page 会残留在元素上，
-    于是从 /live/ 切到别的页面会白白空出首屏（上面一大片空白）。
-    用 :has() 兜底：只有页面上真的还有 hero 元素时才把首屏让出来；
-    hero 随切页被移除后，这一条立刻生效，内容回到导航栏下方开始。
+    于是从 /live/ 切到别的页面会白白空出首屏。
+    这里判断的是 body 上有没有 hero 元素（hero 在 #page-hero-layer 里，不在 content-panel 内，
+    所以不能写成 .content-panel:not(:has(...))，那样在 live 页也会命中，把正文拉到 5.5rem
+    反而被 hero 盖住）。hero 随切页被移除后，这条立刻生效。
   */
-  html[data-wallpaper-mode] body:not(.is-home) .content-panel[data-hero-page]:not(
-      :has(live-hero-fade)
-    ) {
+  html[data-wallpaper-mode] body:not(.is-home):not(:has(live-hero-fade))
+    .content-panel[data-hero-page] {
     --content-top: 5.5rem;
   }
 
