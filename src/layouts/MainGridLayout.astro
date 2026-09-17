@@ -206,37 +206,35 @@ const {
 
 <style>
 	/*
-		hero 图层：整屏固定，压在所有内容与导航栏之上。
+		hero 图层：占满首屏、压在所有内容与导航栏之上，并且**跟着页面一起滚走**。
 		z-index 取值 1090：
 		  · 1090 > 导航栏 z-80、内容 z-30、浮动控件 z-999/1000、看板娘 z-999
 		    → 开场动画是真的“最上层”，不会被切一刀；
 		  · 1090 < 移动端导航抽屉 z-1100、分享海报/灯箱 z-9999
 		    → 抽屉和弹窗仍然盖得住，不会出现点了没反应。
+
+		为什么用 absolute（跟着滚）而不是 fixed（钉在视口）：
+		内容被 --content-top: 100vh 推到 hero 正下方，absolute 时两者严丝合缝 ——
+		往下滑就是 hero 往上退、正文从下面顶上来，中途不会出现「只有壁纸的空档」；
+		如果做成 fixed 再淡出，hero 一让开就是整屏空白，正文还在屏幕外面。
+
 		pointer-events: none 让页面照常可滚动可点击，hero 里需要点的按钮自己开 auto。
 	*/
 	#page-hero-layer {
-		position: fixed;
-		inset: 0;
+		position: absolute;
+		top: 0;
+		right: 0;
+		left: 0;
+		height: 100vh;
 		z-index: 1090;
 		overflow: hidden;
 		pointer-events: none;
 	}
 
 	/*
-		减少动效时 hero 不做滚动淡出（脚本直接返回，不挂滚动监听），如果还是 fixed
-		就会把下面的内容永久盖住。改成随页面滚走：正好占首屏一个屏高
-		（内容也被 --content-top: 100vh 推到它下面）。
+		减少动效时不做淡入淡出（脚本直接返回），但定位方式与上面一致 ——
+		hero 同样是随页面滚走，不会把下面的内容盖住。
 	*/
-	@media (prefers-reduced-motion: reduce) {
-		#page-hero-layer {
-			position: absolute;
-			top: 0;
-			right: 0;
-			left: 0;
-			bottom: auto;
-			height: 100vh;
-		}
-	}
 </style>
 
 </Layout>

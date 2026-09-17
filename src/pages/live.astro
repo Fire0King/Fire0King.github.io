@@ -427,44 +427,44 @@ const heroEnabled = liveReportConfig.hero.enable;
 					}
 
 					/*
-						滚动 = 开关（不是跟滚动比例半透明地压在内容上）：
-						  · 往下滑超过 HIDE_AFTER_PX → hero 整块淡出、点击穿透，内容完全看得清；
-						  · 回到顶部 SHOW_BEFORE_PX 以内 → hero 再淡回来（两个阈值留回差，避免临界抖动）。
-						之前是按滚动比例算 opacity（滑一半就是半透明），hero 会一直糊在正文上面看不清，
-						所以改成这种开关式行为。淡出/淡入本身交给 CSS 的 transition，看起来还是渐隐。
-						挂载瞬间不做判断：Swup 切页时 scrollY 可能还是上一页的值，会误隐藏。
+						滚动交接：#page-hero-layer 是 absolute（跟着页面滚），所以往下滑就是
+						hero 往上退、正文从下面顶上来 —— 中途不会出现"只有壁纸的空档"，
+						也不会有半透明糊在正文上的问题（两者在文档里是上下相接、不重叠）。
+
+						这里只做两件收尾的事：
+						  1. 最后一小段（0.75 屏 → 1 屏）补一个淡出，让"盖面"和正文交接得软一点；
+						     前面这段完全不透明，避免正文还没上来就被压上一层灰。
+						  2. hero 整块滑出视口后暂停视频，滑回来再继续（省电）。
+						挂载瞬间不做判断：Swup 切页时 scrollY 可能还是上一页的值。
 					*/
 					this.style.opacity = "1";
-					this.style.visibility = "visible";
 					this.style.pointerEvents = "auto";
 					if (reduced) return;
 					this.ticking = false;
-					/** 往下滑超过这么多像素就整块收掉 */
-					const HIDE_AFTER_PX = 24;
-					/** 回到这个距离以内再放出来 */
-					const SHOW_BEFORE_PX = 8;
 					this.hidden = false;
-					const setHidden = (hide) => {
-						if (hide === this.hidden) return;
-						this.hidden = hide;
-						this.style.opacity = hide ? "0" : "1";
-						// hero 是整屏最上层：显示时吞掉点击（否则会点到被盖住的导航栏按钮，
-						// 搜索/主题面板开在 hero 底下，看起来像"点了没反应"）；藏起来后还给页面
-						this.style.pointerEvents = hide ? "none" : "auto";
-						if (hide) {
-							for (const video of this.videos) video.pause();
-						} else {
-							tryPlay(currentVideo());
-						}
-					};
 					this.onScroll = () => {
 						if (this.ticking) return;
 						this.ticking = true;
 						requestAnimationFrame(() => {
 							this.ticking = false;
+							const vh = window.innerHeight || 1;
 							const y = window.scrollY || 0;
-							if (!this.hidden && y > HIDE_AFTER_PX) setHidden(true);
-							else if (this.hidden && y <= SHOW_BEFORE_PX) setHidden(false);
+							// 最后 1/4 屏开始淡化：此时正文已经顶上来大半，淡化不会露出大片空白
+							const fadeStart = vh * 0.75;
+							const progress = Math.min(
+								1,
+								Math.max(0, (y - fadeStart) / (vh - fadeStart)),
+							);
+							this.style.opacity = String(1 - progress);
+
+							const offScreen = y >= vh;
+							if (offScreen === this.hidden) return;
+							this.hidden = offScreen;
+							if (offScreen) {
+								for (const video of this.videos) video.pause();
+							} else {
+								tryPlay(currentVideo());
+							}
 						});
 					};
 					window.addEventListener("scroll", this.onScroll, { passive: true });
