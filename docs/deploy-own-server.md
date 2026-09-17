@@ -614,6 +614,36 @@ tar -xzf /root/backup/blog-20260918-1200.tgz -C /var/www/myqian-bao.top
 | rsync 报 Permission denied | 目标目录属主与 `SSH_USER` 不一致，或私钥没配对（`authorized_keys` 权限 600） |
 | 打开很慢 | 服务器带宽只有几 Mbps；图片/视频建议继续放图床；后续可加国内 CDN |
 
+### 8.2 GitHub Actions 部署到服务器失败怎么定位
+
+工作流按顺序跑这些步骤，**哪一步红就直接看那一行的日志**（Actions → 点开这次运行）：
+
+| 步骤 | 失败含义 | 处理 |
+| --- | --- | --- |
+| 检查 Secrets 是否就绪 | 某个 Secret 没配（日志会列出缺哪个） | 按 5.2 补齐 |
+| 安装依赖 / 构建 | 代码或依赖问题，和服务器无关 | 本地 `pnpm build` 复现 |
+| **写入部署私钥** | `SSH_KEY` 不是有效的未加密 OpenSSH 私钥 | 见 5.1 ④：要复制 `-----BEGIN…END-----` 全文；首行若是 `ssh-ed25519 AAAA…` 说明粘成了公钥；提示 passphrase 说明私钥带口令 |
+| **预检（SSH / rsync / 目标目录）** | 退出码 3 = 服务器没装 rsync（`sudo apt install -y rsync`）；4 = 目标目录不存在（`mkdir -p`）；5 = 目录不可写（`chown`） | 按日志提示在服务器上修 |
+| 同步 dist/ 到服务器 | 一般是 SSH 用户名/权限问题（`Permission denied (publickey)`） | `SSH_USER` 必须是 `authorized_keys` 所属的那个用户；确认公钥已装（5.1 ②③） |
+
+> 私钥改动后**不需要推代码**：Actions → Deploy to own server → **Run workflow** 即可重跑。
+
+### 8.3 域名能解析、但访问 403（用 IP 却正常）
+
+说明域名的 server 块和 IP 命中的那个块**不是同一个**，或者它的 `root` 还指向 `/var/www/html`：
+
+```bash
+sudo nginx -T | grep -nE "listen|server_name|root " | head -30
+```
+
+修法：让**同一个** server 块的 `server_name` 同时包含域名和服务器 IP，并且 `root` 指向站点目录：
+
+```nginx
+server_name myqian-bao.top www.myqian-bao.top 118.31.184.73;
+root /var/www/myqian-bao.top;
+```
+
+
 ### 8.1 诊断"到底哪个 server 块在服务我"
 
 ```bash
