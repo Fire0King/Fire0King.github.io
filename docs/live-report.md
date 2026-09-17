@@ -317,6 +317,9 @@ B站 和 抖音 都**没有公开的“历史直播记录”接口**，所以时
 
 两者都有默认值兜底：`PUBLIC_SITE_URL` 默认取 `src/config/siteConfig.ts` 里的 `site_url`，`PUBLIC_BASE_PATH` 默认 `/`。
 
+> 部署到**自己的云服务器**（阿里云 + 自有域名）见 [`deploy-own-server.md`](./deploy-own-server.md)：
+> 安全组/备案前提、宝塔或 Nginx 托管、Actions 自动 rsync、Nginx 缓存与压缩、回滚与排错。
+
 ### 4.1 GitHub Pages（当前方案）
 
 当前主站部署在**用户站仓库** `Fire0King/Fire0King.github.io`（分支 `main`，`main` 是它的默认分支）：
