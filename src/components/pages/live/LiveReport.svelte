@@ -120,6 +120,25 @@ const hasFollowerData = $derived(
 	platforms.some((item) => (followers[item]?.points?.length ?? 0) > 0),
 );
 
+/**
+ * 距离上次直播多少天：按**全部**记录里最近的一场算（不受当前选中月份影响），
+ * 没有任何记录时返回 null，页面显示 "—"。
+ * 用响应式状态 todayKey（构建时的"今天"会在客户端水合后重新校准）。
+ */
+const daysSinceLastStream = $derived.by(() => {
+	const last = records.reduce<string | null>(
+		(max, record) =>
+			record.date && (!max || record.date > max) ? record.date : max,
+		null,
+	);
+	if (!last) return null;
+	const diff = Math.round(
+		(Date.parse(`${todayKey}T00:00:00Z`) - Date.parse(`${last}T00:00:00Z`)) /
+			86400000,
+	);
+	return Number.isFinite(diff) && diff >= 0 ? diff : null;
+});
+
 /** 月度统计卡片数据 */
 const stats = $derived.by(() => {
 	const hourUnit = i18n(I18nKey.liveReportHourUnit);
@@ -173,11 +192,11 @@ const stats = $derived.by(() => {
 			unit: "",
 		},
 		{
-			key: "streak",
+			key: "since",
 			icon: "star" as const,
-			label: i18n(I18nKey.liveReportStreak),
-			value: String(calendar.stats.streakDays),
-			unit: i18n(I18nKey.liveReportDayUnit),
+			label: i18n(I18nKey.liveReportSinceLastStream),
+			value: daysSinceLastStream === null ? "—" : String(daysSinceLastStream),
+			unit: daysSinceLastStream === null ? "" : i18n(I18nKey.liveReportDayUnit),
 		},
 	];
 });

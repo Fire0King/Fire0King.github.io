@@ -1,4 +1,4 @@
-import Key from "../i18nKey";
+﻿import Key from "../i18nKey";
 import type { Translation } from "../translation";
 
 export const ko: Translation = {
@@ -278,7 +278,7 @@ export const ko: Translation = {
 	[Key.liveReportTotalDuration]: "총 시간",
 	[Key.liveReportAverageDuration]: "평균 시간",
 	[Key.liveReportLongestDuration]: "최장 방송",
-	[Key.liveReportStreak]: "연속 방송",
+	[Key.liveReportSinceLastStream]: "마지막 방송 이후",
 	[Key.liveReportDayUnit]: "일",
 	[Key.liveReportCalendar]: "방송 달력",
 	[Key.liveReportCalendarDesc]:

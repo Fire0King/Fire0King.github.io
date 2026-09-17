@@ -1,4 +1,4 @@
-import Key from "../i18nKey";
+﻿import Key from "../i18nKey";
 import type { Translation } from "../translation";
 
 export const ja: Translation = {
@@ -278,7 +278,7 @@ export const ja: Translation = {
 	[Key.liveReportTotalDuration]: "合計時間",
 	[Key.liveReportAverageDuration]: "平均時間",
 	[Key.liveReportLongestDuration]: "最長配信",
-	[Key.liveReportStreak]: "連続配信",
+	[Key.liveReportSinceLastStream]: "前回配信から",
 	[Key.liveReportDayUnit]: "日",
 	[Key.liveReportCalendar]: "配信カレンダー",
 	[Key.liveReportCalendarDesc]:

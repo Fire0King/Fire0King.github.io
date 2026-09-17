@@ -272,7 +272,7 @@ enum I18nKey {
 	liveReportTotalDuration = "liveReportTotalDuration",
 	liveReportAverageDuration = "liveReportAverageDuration",
 	liveReportLongestDuration = "liveReportLongestDuration",
-	liveReportStreak = "liveReportStreak",
+	liveReportSinceLastStream = "liveReportSinceLastStream",
 	liveReportDayUnit = "liveReportDayUnit",
 	liveReportCalendar = "liveReportCalendar",
 	liveReportCalendarDesc = "liveReportCalendarDesc",

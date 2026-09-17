@@ -1,4 +1,4 @@
-import Key from "../i18nKey";
+﻿import Key from "../i18nKey";
 import type { Translation } from "../translation";
 
 export const zh_TW: Translation = {
@@ -276,7 +276,7 @@ export const zh_TW: Translation = {
 	[Key.liveReportTotalDuration]: "總時長",
 	[Key.liveReportAverageDuration]: "平均時長",
 	[Key.liveReportLongestDuration]: "最長一場",
-	[Key.liveReportStreak]: "連續直播",
+	[Key.liveReportSinceLastStream]: "距離上次直播",
 	[Key.liveReportDayUnit]: "天",
 	[Key.liveReportCalendar]: "直播月曆",
 	[Key.liveReportCalendarDesc]:

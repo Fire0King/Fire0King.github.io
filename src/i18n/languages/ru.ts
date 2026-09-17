@@ -1,4 +1,4 @@
-import Key from "../i18nKey";
+﻿import Key from "../i18nKey";
 import type { Translation } from "../translation";
 
 export const ru: Translation = {
@@ -279,7 +279,7 @@ export const ru: Translation = {
 	[Key.liveReportTotalDuration]: "Общая длительность",
 	[Key.liveReportAverageDuration]: "Средняя длительность",
 	[Key.liveReportLongestDuration]: "Самая долгая",
-	[Key.liveReportStreak]: "Серия",
+	[Key.liveReportSinceLastStream]: "С последнего стрима",
 	[Key.liveReportDayUnit]: "д",
 	[Key.liveReportCalendar]: "Календарь трансляций",
 	[Key.liveReportCalendarDesc]:
