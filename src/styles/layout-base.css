@@ -99,15 +99,21 @@
   html[data-wallpaper-mode="fullscreen"] body.is-home .content-panel {
     --content-top: 100vh;
   }
-  /* fullscreen 页面级 hero（例如直播数据页，MainGridLayout 的 heroPage）：
-     与首页同一套处理，首屏整屏留给 hero，数据往下滑才出现 */
-  html[data-wallpaper-mode="fullscreen"] body:not(.is-home) .content-panel[data-hero-page] {
-    --content-top: 100vh;
-  }
-  /* 页面级 hero 现在是独立的整屏固定层（#page-hero-layer，z-index 1090），
-     和壁纸模式无关：任何模式下都要把首屏整屏让出来，否则内容会被 hero 盖住 */
+  /* 页面级 hero（例如直播数据页，MainGridLayout 的 heroPage）：
+     与首页同一套处理，首屏整屏留给 hero，数据往下滑才出现；与壁纸模式无关 */
   html[data-wallpaper-mode] body:not(.is-home) .content-panel[data-hero-page] {
     --content-top: 100vh;
+  }
+  /*
+    Swup 切页时 #content-panel 不在替换容器列表里，data-hero-page 会残留在元素上，
+    于是从 /live/ 切到别的页面会白白空出首屏（上面一大片空白）。
+    用 :has() 兜底：只有页面上真的还有 hero 元素时才把首屏让出来；
+    hero 随切页被移除后，这一条立刻生效，内容回到导航栏下方开始。
+  */
+  html[data-wallpaper-mode] body:not(.is-home) .content-panel[data-hero-page]:not(
+      :has(live-hero-fade)
+    ) {
+    --content-top: 5.5rem;
   }
 
   /* banner wrapper：统一顶到顶部、高 65vh（不再用 -30vh/translateY 抵消；短屏高度由 layout-styles 媒体查询覆盖） */
