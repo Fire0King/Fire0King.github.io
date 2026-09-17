@@ -630,18 +630,37 @@ tar -xzf /root/backup/blog-20260918-1200.tgz -C /var/www/myqian-bao.top
 
 ### 8.3 域名能解析、但访问 403（用 IP 却正常）
 
-说明域名的 server 块和 IP 命中的那个块**不是同一个**，或者它的 `root` 还指向 `/var/www/html`：
+按这个顺序区分，**先判断是 nginx 的问题还是阿里云备案拦截**：
 
 ```bash
-sudo nginx -T | grep -nE "listen|server_name|root " | head -30
+# ① 在服务器本机、带上域名的 Host 头请求自己 —— 这一步绕开了所有外部拦截
+curl -I -H "Host: myqian-bao.top" http://127.0.0.1/     # 期望 200
 ```
 
-修法：让**同一个** server 块的 `server_name` 同时包含域名和服务器 IP，并且 `root` 指向站点目录：
+- **① 返回 200** → 你的 nginx 配置没问题，问题在外部拦截，看下面 ②
+- **① 不是 200** → 是 nginx 自身问题（`root` 指错目录 / 目录权限 / `try_files` 缺失）：
+  ```bash
+  sudo nginx -T | grep -nE "listen|server_name|root " | head -30
+  ```
+  修法：让**同一个** server 块的 `server_name` 同时包含域名和服务器 IP，`root` 指向站点目录：
+  ```nginx
+  server_name myqian-bao.top www.myqian-bao.top 118.31.184.73;
+  root /var/www/myqian-bao.top;
+  ```
 
-```nginx
-server_name myqian-bao.top www.myqian-bao.top 118.31.184.73;
-root /var/www/myqian-bao.top;
+```bash
+# ② 从外网访问域名
+curl -I http://myqian-bao.top/
 ```
+
+| 现象 | 含义 | 处理 |
+| --- | --- | --- |
+| **403 且响应头是 `Server: Beaver`**（不是你的 nginx） | **阿里云对未备案域名的拦截** | 等 ICP 备案通过；期间用 IP 访问（IP 不受拦截） |
+| 连接被重置 / 超时（`curl` 报 000、`Empty reply`） | 同上，备案拦截的另一种表现 | 同上 |
+| 403 且响应头是 `Server: nginx` | nginx 的 `root`/权限问题（回到 ① 排查） | 修 nginx |
+
+> 判断窍门：**同一个 IP，只把 Host 换成域名就 403**，而 IP 直连是 200 —— 说明拦的是"域名"，
+> 即备案拦截，服务器本身没毛病。备案通过后域名会自动恢复，不需要改任何配置。
 
 
 ### 8.1 诊断"到底哪个 server 块在服务我"
