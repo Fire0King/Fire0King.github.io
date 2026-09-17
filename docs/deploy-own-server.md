@@ -436,6 +436,9 @@ server {
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
+    # nginx ≥ 1.25.1 用这个（Ubuntu 24.04 自带的就是 1.24+/1.28）；
+    # 更老的版本改成 `listen 443 ssl http2;` 并删掉这一行
+    http2 on;
     server_name myqian-bao.top www.myqian-bao.top 118.31.184.73;
 
     # 路径以 `sudo certbot certificates` 的输出为准
@@ -473,8 +476,17 @@ curl -s http://127.0.0.1/ | head -c 120                # 应出现你自己的 H
 ```
 
 > 证书用的是域名，所以 **`https://118.31.184.73/` 一定会报证书错误**（证书不覆盖 IP）—— 用 IP 测就测 HTTP。
-> 想要 HTTP/2：先 `nginx -v` 看版本，≥1.25.1 用 `http2 on;`，更老的用 `listen 443 ssl http2;`，
-> 版本不确定就先不加（静态博客 HTTP/1.1 也够）。
+
+### 6.2 Ubuntu / Debian 上的路径对照（本机实测：nginx 1.28.3 on Ubuntu）
+
+| 项 | 位置 |
+| --- | --- |
+| 你的站点配置 | `/etc/nginx/conf.d/myqian-bao.top.conf`，或 `sites-available/` + 软链到 `sites-enabled/`（两种都会被 `nginx.conf` 加载） |
+| nginx **自带默认站** | `/etc/nginx/sites-enabled/default` → 就是它 `listen 80 default_server` + `root /var/www/html` 导致看到 "Welcome to nginx!"；`sudo rm -f /etc/nginx/sites-enabled/default` 去掉这个**软链**即可（原文件还在 `sites-available/`，随时能恢复） |
+| nginx 运行用户 | `www-data` → 目录属主用 `chown -R www-data:www-data /var/www/myqian-bao.top` |
+| 配置检查 / 重载 | `sudo nginx -t && sudo systemctl reload nginx` |
+| 出错日志 | `sudo tail -n 50 /var/log/nginx/error.log`（改完配置看不到效果先看这里） |
+| HTTP/2 | 1.25.1+ 用 server 块里的 `http2 on;`；老版本用 `listen 443 ssl http2;` |
 
 
 ## 7. 回滚
