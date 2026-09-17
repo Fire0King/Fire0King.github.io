@@ -60,20 +60,52 @@ df -h            # 看磁盘（站点只占 23MB）
 ss -lntp         # 看端口占用：80/443 有没有被别的服务占着
 systemctl status nginx 2>/dev/null || echo "没装 nginx"
 ls /www/server/nginx 2>/dev/null && echo "看起来装了宝塔"   # 宝塔默认用 OpenResty
+dmesg -T | grep -i "out of memory"   # 过去有没有被 OOM 杀过进程 ← 判断要不要加 swap 的关键
+docker stats --no-stream 2>/dev/null # AstrBot 是 docker 起的就能看到它吃多少内存
 ```
 
-### 2.1 加 2G swap（2G 内存的保命操作，强烈建议）
+### 2.1 要不要加 swap（先判断，再决定）
+
+**swap 不是"再加 2G 内存"**，它是硬盘上的应急溢出区：
+
+| | 内存（RAM） | swap（硬盘上的文件） |
+| --- | --- | --- |
+| 速度 | 极快 | 慢一个数量级（普通云盘几 MB/s ~ 几十 MB/s） |
+| 作用 | 真正干活的地方 | 内存不够时把"暂时不用的页"挪过去 |
+
+**平时它一动都不动，不加也不减性能。** 只有物理内存快满时才有区别：
+
+- **没有 swap** → 内核直接杀进程（OOM Killer），被杀的可能正是 AstrBot、TS3，或者 nginx（站点 502）
+- **有 swap** → 挪到硬盘，机器变慢但不崩
+
+所以它是"保险丝"而不是"扩容"。真正拖慢机器的是**频繁换页（thrashing）**：如果内存长期不够、数据在内存和硬盘之间反复搬，
+AstrBot 会卡、TS3 语音会抖 —— 那是内存真的不够，该做的是给内存大户设上限（见下），而不是加更多 swap。
+
+**判断方法**：上面 `dmesg` 有 OOM 记录 → 确实该加；`free -h` 里 available 还有 800MB+ 且没有 OOM 记录 → 可以不加，
+或者只加 1G 意思一下。磁盘紧张（`df -h` 剩余 < 20G）就用 1G。
 
 ```bash
-sudo fallocate -l 2G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
+# 加 1G（够当保险丝；想按常规"swap ≈ 内存"来就写 2G）
+sudo fallocate -l 1G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-free -h   # 确认 Swap 那行有 2.0Gi
+# 只在内存真正吃紧时才用 swap（默认 60 太激进，会提前把数据挪出去）
+echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
+free -h && swapon --show
 ```
 
-这样 AstrBot 抽风吃内存时，不会把 nginx 一起 OOM 掉（站点挂了你自己可能还不知道）。
+**比加 swap 更根本的做法**：管住内存大户 AstrBot 的上限，别让它无限涨。
+
+```bash
+# Docker 起的话，重建容器时加内存限制
+docker run --memory=800m --memory-swap=1g ...
+# systemd 服务则加 MemoryMax
+# [Service]
+# MemoryMax=800M
+```
+
+这样即使 AstrBot 抽风，也不会把 nginx / TS3 一起拖下水。站点本身（nginx 托管静态文件）只占 10~20MB，
+不是内存压力的来源。
 
 ## 3. 装 Web 服务（两条路，选一条）
 
@@ -118,18 +150,109 @@ yum install -y wget && wget -O install.sh https://download.bt.cn/install/install
 3. 站点 → **配置文件**，把第 6 节的缓存/压缩规则贴进去
 4. 面板 → 安全 → 放行 80/443（同时确认阿里云安全组也放行了），并把 8888 端口限制成只允许你的 IP
 
-## 4. 上传站点（先手动跑通，再做自动化）
+## 4. 上传站点（手把手，先手动跑通再做自动化）
 
-先手动传一份，确认整条链路通了再上自动化：
+### 4.0 先把"域名这件事"分清楚
+
+| 事项 | 现状 | 要做的 |
+| --- | --- | --- |
+| DNS 解析（域名 → 服务器 IP） | ✅ `myqian-bao.top` 已经指向 `118.31.184.73` | **不用做**；想用 `www.myqian-bao.top` 再补一条记录 |
+| 阿里云安全组 / 防火墙 | ❌ 80、443 从外网不通 | **放行 80/443**（见 1.1） |
+| ICP 备案 | ❌ 还在审核 | 等；审核期间用 IP 验证（见 1.2） |
+
+所以顺序是：**放行端口 → 传站点 → 用 IP 验证 → 备案通过后域名自动就能走 80/443**。
+域名绑定（DNS）早就做好了，卡住的是端口和备案。
+
+### 4.1 本地构建产物
+
+在 Windows 本地（`D:\AAAQian_bao\Firefly_Blog`）：
+
+```powershell
+cd D:\AAAQian_bao\Firefly_Blog
+$env:PUBLIC_SITE_URL="https://myqian-bao.top"   # canonical / sitemap / RSS 用
+$env:PUBLIC_BASE_PATH="/"                       # 根路径，别写成 /xxx
+$env:NODE_OPTIONS="--use-system-ca"             # 这台机器拉字体需要（Actions 上不用）
+corepack pnpm build
+```
+
+构建完确认一下：
+
+```powershell
+Test-Path .\dist\index.html          # 必须是 True
+(Get-ChildItem .\dist -Recurse -File | Measure-Object).Count   # 大约 336 个文件
+```
+
+> ⚠️ 不设 `PUBLIC_SITE_URL` 的话，页面里的 canonical / sitemap / RSS 会指向 `fire0king.github.io`。
+
+### 4.2 方式一：WinSCP 图形化上传（推荐给你，不易出错）
+
+1. 下载安装 WinSCP（<https://winscp.net/>，免费）
+2. 新建会话：
+   - 文件协议 `SFTP`，主机名 `118.31.184.73`，端口 `22`
+   - 用户名 `root`（或你的登录用户），密码就是你 SSH 登录用的密码
+   - 首次连接会问"是否信任该主机密钥" → 接受
+3. 左侧切到本地 `D:\AAAQian_bao\Firefly_Blog\dist`，右侧进到 `/var/www/myqian-bao.top`
+4. 在左侧全选（Ctrl+A）→ 拖到右侧 → 传输方式选"二进制"（默认即可）
+5. 传完在右侧确认能看到 `index.html`、`_astro/`、`live/`、`pagefind/` 等
+
+### 4.3 方式二：命令行 scp（Windows 10/11 自带）
+
+先把内容打成一个 zip，避免 Windows 通配符的坑：
+
+```powershell
+Compress-Archive -Path .\dist\* -DestinationPath .\dist.zip -Force
+scp .\dist.zip root@118.31.184.73:/tmp/
+```
+
+然后在服务器上解包（没有 `unzip` 就先装：`apt install -y unzip` 或 `yum install -y unzip`）：
 
 ```bash
-# 本地（Windows PowerShell）打包
-pnpm build                                  # 产物在 dist/
-tar -czf blog-dist.tgz -C dist .            # 或直接用 WinSCP / 宝塔面板上传 dist 里的文件
-# 上传后解到站点根目录
-tar -xzf blog-dist.tgz -C /www/wwwroot/myqian-bao.top
-chown -R www:www /www/wwwroot/myqian-bao.top   # 宝塔用 www 用户；纯 nginx 一般是 nginx 或 www-data
+sudo mkdir -p /var/www/myqian-bao.top
+cd /var/www/myqian-bao.top && sudo unzip -o /tmp/dist.zip && rm /tmp/dist.zip
+find /var/www/myqian-bao.top -type f | wc -l      # 应该 336 左右
 ```
+
+### 4.4 设权限（403 Forbidden 基本都是这里没做对）
+
+```bash
+# 先看 nginx 是以哪个用户跑的：第一列就是用户名
+ps aux | grep nginx | head -3
+
+# Debian / Ubuntu 一般是 www-data
+sudo chown -R www-data:www-data /var/www/myqian-bao.top
+# Alibaba Cloud Linux / CentOS 一般是 nginx
+# sudo chown -R nginx:nginx /var/www/myqian-bao.top
+
+sudo find /var/www/myqian-bao.top -type d -exec chmod 755 {} \;
+sudo find /var/www/myqian-bao.top -type f -exec chmod 644 {} \;
+```
+
+### 4.5 验证（备案前用 IP，别用域名）
+
+```bash
+# ① 服务器本机（不经过阿里云对未备案域名的拦截）
+curl -I http://127.0.0.1/                 # 期望 200 或 301
+curl -s http://127.0.0.1/ | head -c 120   # 能看到 HTML
+
+# ② 你自己的电脑浏览器打开（IP 访问不受备案影响）
+#    http://118.31.184.73/
+```
+
+逐项对照：
+
+| 现象 | 原因 |
+| --- | --- |
+| 连接被拒 / 超时 | 阿里云安全组没放行 80（见 1.1） |
+| 403 Forbidden | 4.4 的属主/权限没设对，或 nginx 的 `root` 指错了目录 |
+| 404 | `root` 目录里没有 `index.html`（解包路径错了，套多了一层目录） |
+| 502 / 500 | nginx 配置写错：`sudo nginx -t` 看提示 |
+| 页面能开但样式/图片全丢 | 构建时 `PUBLIC_BASE_PATH` 不是 `/` |
+
+### 4.6 以后怎么更新
+
+- **手动**：重复 4.1 + 4.2（或 4.3）
+- **自动（推荐）**：按第 5 节配好 Secrets，然后在 GitHub Actions 里跑一次
+  `Deploy to own server`；之后想让 push 自动同步，把工作流里的 `push:` 段取消注释即可
 
 ## 5. 自动部署：GitHub Actions → rsync
 
@@ -154,7 +277,7 @@ GitHub 仓库 → Settings → Secrets and variables → Actions → New reposit
 | `SSH_PORT` | `22` |
 | `SSH_USER` | 你的登录用户（宝塔一般用 `root`，建议新建一个普通用户） |
 | `SSH_KEY` | 上面 `deploy_blog` 私钥的**完整内容** |
-| `SSH_TARGET` | `/www/wwwroot/myqian-bao.top`（站点根目录） |
+| `SSH_TARGET` | `/var/www/myqian-bao.top`（站点根目录；用宝塔的话是 `/www/wwwroot/myqian-bao.top`） |
 
 ### 5.3 工作流已经内置：`.github/workflows/deploy-server.yml`
 
@@ -198,7 +321,7 @@ server {
     listen 443 ssl http2;
     server_name myqian-bao.top www.myqian-bao.top 118.31.184.73;
 
-    root /www/wwwroot/myqian-bao.top;
+    root /var/www/myqian-bao.top;   # 宝塔路线则是 /www/wwwroot/myqian-bao.top
     index index.html;
 
     ssl_certificate     /path/to/fullchain.pem;   # 宝塔会在站点配置里自动写好这两行
@@ -241,10 +364,10 @@ server {
 发布前留一份备份，出问题直接覆盖回去：
 
 ```bash
-# 每次部署前（可以加进 workflow）
-tar -czf /www/backup/blog-$(date +%Y%m%d-%H%M).tgz -C /www/wwwroot/myqian-bao.top .
+# 每次部署前先备份（先 mkdir -p /root/backup；也可以加进 workflow）
+tar -czf /root/backup/blog-$(date +%Y%m%d-%H%M).tgz -C /var/www/myqian-bao.top .
 # 回滚
-tar -xzf /www/backup/blog-20260918-1200.tgz -C /www/wwwroot/myqian-bao.top
+tar -xzf /root/backup/blog-20260918-1200.tgz -C /var/www/myqian-bao.top
 ```
 
 ## 8. 排错
