@@ -34,7 +34,20 @@
 - 查：阿里云控制台 → **备案** → 我的备案。没有记录就是没备案。
 - 办：首次备案免费，需要这台实例**剩余时长 ≥ 3 个月**（阿里云会给「备案服务码」），全程 7~20 个工作日。
   `.top` 属于可备案后缀，没问题。
-- 备案期间想先看效果：临时用非标准端口（如 8443）访问，或先用 IP + 端口验证，等备案通过再切 80/443。
+- **备案审核期间可以先做的事**（本站的部署、Nginx、证书、自动同步全都能先做完）：
+
+  ```bash
+  # 1) 在服务器本机验证 Nginx 配置和站点内容（不经过阿里云的域名拦截）
+  curl -I -H "Host: myqian-bao.top" http://127.0.0.1/
+  # 2) 从外网用 IP 访问验证（IP 访问不受未备案域名拦截影响）
+  #    需要把 IP 写进 server_name，或让这个 server 块作为 default_server
+  #    http://118.31.184.73/
+  # 3) 想用域名验证，就临时加一个非标准端口的 server 块（如 8443），
+  #    60/443 以外的端口不受备案拦截影响；备案通过后再切回标准端口
+  ```
+
+  注意：域名解析已经指向这台服务器了，**备案通过前不要把 80/443 的站点地址到处发** —— 未备案域名
+  走 80 端口会被阿里云阻断，访客看到的是超时，而不是你的页面。
 
 > 如果这台 ECS 的备案主体不是你本人（比如公司账号），或者你不想备案，那就只能用非标准端口，
 > 且随时可能被拦——这点要先想清楚再往下做。
@@ -64,22 +77,16 @@ free -h   # 确认 Swap 那行有 2.0Gi
 
 ## 3. 装 Web 服务（两条路，选一条）
 
-### 路线 A：宝塔面板（可视化，推荐）
+### 路线 A：原生 Nginx（推荐，占用最小）
 
-```bash
-# 阿里云 CentOS/Alibaba Cloud Linux
-yum install -y wget && wget -O install.sh https://download.bt.cn/install/install_6.0.sh && sh install.sh
-# Ubuntu/Debian 用官方对应脚本
-```
+| | 常驻内存 | 说明 |
+| --- | --- | --- |
+| **原生 Nginx** | **约 5–15 MB** | 1–2 个 worker，静态站几乎不吃 CPU，没有额外守护进程；证书用 certbot，同样一条命令 |
+| 宝塔面板 | 约 60–150 MB + OpenResty 10 MB | 面板 Python 守护进程常驻，还会开 8888 端口、默认劝你装 MySQL/PHP |
 
-装完：
-
-1. 面板 → **网站** → 添加站点：域名填 `myqian-bao.top`，根目录 `/www/wwwroot/myqian-bao.top`，PHP 版本选「纯静态」
-2. 站点 → **SSL** → Let's Encrypt → 勾选域名 → 申请 → 打开「强制 HTTPS」
-3. 站点 → **配置文件**，把第 6 节的缓存/压缩规则贴进去（宝塔的配置文件里加 `location` 段）
-4. 面板 → 安全 → 放行 80/443（同时确认阿里云安全组也放行了）
-
-### 路线 B：命令行 Nginx
+这台机器只有 2G，还要跑 AstrBot（可能 300MB~1G）+ TS3（~100MB），**宝塔那 60~150MB 不划算**，
+而且面板端口暴露在公网多一个攻击面。以后真要图形化管 MySQL/多站点再装也不迟（装时只勾 Nginx，
+别勾 PHP/MySQL）。
 
 ```bash
 # Ubuntu / Debian
@@ -95,6 +102,21 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo apt install -y certbot python3-certbot-nginx   # 或 yum install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d myqian-bao.top
 ```
+
+### 路线 B：宝塔面板（想用图形化界面时）
+
+```bash
+# 阿里云 CentOS/Alibaba Cloud Linux
+yum install -y wget && wget -O install.sh https://download.bt.cn/install/install_6.0.sh && sh install.sh
+# Ubuntu/Debian 用官方对应脚本
+```
+
+装的时候**只选 Nginx**，不要勾 MySQL/PHP（静态站用不上）。然后：
+
+1. 面板 → **网站** → 添加站点：域名填 `myqian-bao.top`，根目录 `/www/wwwroot/myqian-bao.top`，PHP 版本选「纯静态」
+2. 站点 → **SSL** → Let's Encrypt → 勾选域名 → 申请 → 打开「强制 HTTPS」
+3. 站点 → **配置文件**，把第 6 节的缓存/压缩规则贴进去
+4. 面板 → 安全 → 放行 80/443（同时确认阿里云安全组也放行了），并把 8888 端口限制成只允许你的 IP
 
 ## 4. 上传站点（先手动跑通，再做自动化）
 
@@ -134,55 +156,27 @@ GitHub 仓库 → Settings → Secrets and variables → Actions → New reposit
 | `SSH_KEY` | 上面 `deploy_blog` 私钥的**完整内容** |
 | `SSH_TARGET` | `/www/wwwroot/myqian-bao.top`（站点根目录） |
 
-### 5.3 新增工作流 `.github/workflows/deploy-server.yml`
+### 5.3 工作流已经内置：`.github/workflows/deploy-server.yml`
 
-```yaml
-name: Deploy to own server
+仓库里已经有这个文件，**默认只能手动触发**（Actions 页面 → Deploy to own server → Run workflow），
+所以在 Secrets 配好之前它不会运行、也不会影响 GitHub Pages 的自动部署。它做的事：
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**.md"
+1. 先检查 5 个 Secrets 是否齐全，缺了就直接报错并提示看本文档（不会跑到一半才失败）
+2. `pnpm install` + `pnpm build`（注入 `PUBLIC_SITE_URL` / `PUBLIC_BASE_PATH=/`）
+3. rsync `dist/` 到 `SSH_TARGET`
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+两个手动参数：
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.22.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
+| 参数 | 说明 |
+| --- | --- |
+| `site_url` | 构建时注入的站点地址，默认 `https://myqian-bao.top` |
+| `prune` | 是否删除服务器上多余的文件（`--delete`）。**首次部署建议 false**，核对目录无误后再开 |
 
-      - run: pnpm install --frozen-lockfile
-      - name: Build
-        env:
-          PUBLIC_SITE_URL: https://myqian-bao.top
-          PUBLIC_BASE_PATH: /
-        run: pnpm build
+**想改成 push 就自动同步**：把文件里 `push:` 那几行注释去掉即可（建议先手动跑通一次）。
 
-      - name: Rsync to server
-        uses: burnett01/rsync-deployments@7.0.2
-        with:
-          switches: -avzr --delete --exclude='.user.ini'
-          path: dist/
-          remote_path: ${{ secrets.SSH_TARGET }}
-          remote_host: ${{ secrets.SSH_HOST }}
-          remote_port: ${{ secrets.SSH_PORT }}
-          remote_user: ${{ secrets.SSH_USER }}
-          remote_key: ${{ secrets.SSH_KEY }}
-```
-
-> ⚠️ `--delete` 会删掉目标目录里 rsync 没同步到的文件，所以 `SSH_TARGET` 必须是**这个站点专属的目录**，
-> 不要指向 `/www/wwwroot` 之类的上级目录；宝塔的 `.user.ini` 已用 `--exclude` 排除。
-> 想稳妥点可以先去掉 `--delete` 跑几次，确认没问题再加上。
+> ⚠️ `prune` 打开时 `--delete` 会删掉目标目录里 rsync 没同步到的文件，所以 `SSH_TARGET` 必须是
+> **这个站点专属的目录**（例如 `/var/www/myqian-bao.top`），不要指向 `/var/www` 之类的上级目录。
+> 宝塔环境下的 `.user.ini` 已经在 workflow 里用 `--exclude` 排除。
 
 ### 5.4 关于构建环境变量
 

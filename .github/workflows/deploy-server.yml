@@ -1,0 +1,88 @@
+name: Deploy to own server
+
+# 默认**只手动触发**：在还没配好 Secrets 之前，这个工作流不会跑、也不会影响 GitHub Pages 的自动部署。
+# 配置步骤见 docs/deploy-own-server.md 第 5 节（SSH_HOST / SSH_PORT / SSH_USER / SSH_KEY / SSH_TARGET）。
+#
+# 想改成"push 就自动同步到服务器"：把下面 push: 这几行的注释去掉即可
+# （建议先手动跑通一次，确认 rsync 目标和权限都没问题）。
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: "构建时注入的站点地址（canonical / sitemap / RSS 用）"
+        required: false
+        default: "https://myqian-bao.top"
+      prune:
+        description: "删除服务器上多余的文件（首次部署建议 false，确认无误后再开）"
+        type: boolean
+        default: false
+  # push:
+  #   branches: [main]
+  #   paths-ignore:
+  #     - "docs/**"
+  #     - "**.md"
+
+concurrency:
+  group: deploy-own-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检查 Secrets 是否就绪
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_TARGET: ${{ secrets.SSH_TARGET }}
+        run: |
+          missing=""
+          [ -z "$SSH_HOST" ]   && missing="$missing SSH_HOST"
+          [ -z "$SSH_USER" ]   && missing="$missing SSH_USER"
+          [ -z "$SSH_KEY" ]    && missing="$missing SSH_KEY"
+          [ -z "$SSH_TARGET" ] && missing="$missing SSH_TARGET"
+          if [ -n "$missing" ]; then
+            echo "::error::还缺少这些 Secrets：$missing —— 配置步骤见 docs/deploy-own-server.md 第 5 节"
+            exit 1
+          fi
+          echo "Secrets 齐了，目标：$SSH_USER@$SSH_HOST:$SSH_TARGET"
+
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建
+        env:
+          # 站点在根路径，PUBLIC_BASE_PATH 必须是 /，否则样式和链接会 404
+          PUBLIC_SITE_URL: ${{ inputs.site_url || 'https://myqian-bao.top' }}
+          PUBLIC_BASE_PATH: /
+        run: pnpm build
+
+      - name: 同步 dist/ 到服务器
+        uses: burnett01/rsync-deployments@7.0.2
+        with:
+          # prune 打开时才会删除服务器上多余的文件（首次部署建议先关着）
+          switches: -avzr ${{ inputs.prune && '--delete' || '' }} --exclude='.user.ini'
+          path: dist/
+          remote_path: ${{ secrets.SSH_TARGET }}
+          remote_host: ${{ secrets.SSH_HOST }}
+          remote_port: ${{ secrets.SSH_PORT || '22' }}
+          remote_user: ${{ secrets.SSH_USER }}
+          remote_key: ${{ secrets.SSH_KEY }}
+
+      - name: 完成提示
+        run: |
+          echo "已同步到 ${{ secrets.SSH_HOST }}:${{ secrets.SSH_TARGET }}"
+          echo "注意：域名 80/443 需要完成 ICP 备案后才会被阿里云放行；"
+          echo "备案通过前可以先用 http://<服务器IP>/ 或非标准端口验证站点。"
