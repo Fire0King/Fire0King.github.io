@@ -426,52 +426,45 @@ const heroEnabled = liveReportConfig.hero.enable;
 						);
 					}
 
-					// 滚动淡出：先显式恢复可见，且不在挂载瞬间做判断（避免切换页面时被误隐藏）
+					/*
+						滚动 = 开关（不是跟滚动比例半透明地压在内容上）：
+						  · 往下滑超过 HIDE_AFTER_PX → hero 整块淡出、点击穿透，内容完全看得清；
+						  · 回到顶部 SHOW_BEFORE_PX 以内 → hero 再淡回来（两个阈值留回差，避免临界抖动）。
+						之前是按滚动比例算 opacity（滑一半就是半透明），hero 会一直糊在正文上面看不清，
+						所以改成这种开关式行为。淡出/淡入本身交给 CSS 的 transition，看起来还是渐隐。
+						挂载瞬间不做判断：Swup 切页时 scrollY 可能还是上一页的值，会误隐藏。
+					*/
 					this.style.opacity = "1";
 					this.style.visibility = "visible";
+					this.style.pointerEvents = "auto";
 					if (reduced) return;
 					this.ticking = false;
-					/**
-					 * 可逆淡出：下滑时 hero 渐隐、完全隐藏；上滑回来重新显示，
-					 * 背景循环动画继续（隐藏期间暂停，重新出现时恢复播放，省电且无缝）。
-					 */
+					/** 往下滑超过这么多像素就整块收掉 */
+					const HIDE_AFTER_PX = 24;
+					/** 回到这个距离以内再放出来 */
+					const SHOW_BEFORE_PX = 8;
 					this.hidden = false;
-					/** 首屏 55% 处的淡出进度（0 = hero 完整覆盖整屏） */
-					const scrollRatio = () =>
-						Math.min(
-							1,
-							Math.max(
-								0,
-								window.scrollY / ((window.innerHeight || 1) * 0.55),
-							),
-						);
-					/**
-					 * hero 是整屏最上层：完整覆盖时吞掉点击（否则会点到被盖住的导航栏按钮，
-					 * 搜索/主题面板开在 hero 底下，看起来像"点了没反应"）。开始淡出后
-					 * 立刻改回 none，把点击还给页面（浮动控件、看板娘等）。
-					 */
-					this.syncHitArea = (ratio) => {
-						this.style.pointerEvents = ratio > 0 ? "none" : "auto";
+					const setHidden = (hide) => {
+						if (hide === this.hidden) return;
+						this.hidden = hide;
+						this.style.opacity = hide ? "0" : "1";
+						// hero 是整屏最上层：显示时吞掉点击（否则会点到被盖住的导航栏按钮，
+						// 搜索/主题面板开在 hero 底下，看起来像"点了没反应"）；藏起来后还给页面
+						this.style.pointerEvents = hide ? "none" : "auto";
+						if (hide) {
+							for (const video of this.videos) video.pause();
+						} else {
+							tryPlay(currentVideo());
+						}
 					};
-					this.syncHitArea(scrollRatio());
 					this.onScroll = () => {
 						if (this.ticking) return;
 						this.ticking = true;
 						requestAnimationFrame(() => {
 							this.ticking = false;
-							const ratio = scrollRatio();
-							this.style.opacity = String(1 - ratio);
-							this.syncHitArea(ratio);
-
-							const shouldHide = ratio >= 1;
-							if (shouldHide === this.hidden) return;
-							this.hidden = shouldHide;
-							this.style.visibility = shouldHide ? "hidden" : "visible";
-							if (shouldHide) {
-								for (const video of this.videos) video.pause();
-							} else {
-								tryPlay(currentVideo());
-							}
+							const y = window.scrollY || 0;
+							if (!this.hidden && y > HIDE_AFTER_PX) setHidden(true);
+							else if (this.hidden && y <= SHOW_BEFORE_PX) setHidden(false);
 						});
 					};
 					window.addEventListener("scroll", this.onScroll, { passive: true });
