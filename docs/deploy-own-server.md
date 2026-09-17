@@ -261,14 +261,99 @@ curl -s http://127.0.0.1/ | head -c 120   # 能看到 HTML
 
 以后 push 一次就自动同步到服务器。
 
-### 5.1 在服务器上生成部署专用密钥
+### 5.1 配置部署专用的 SSH 密钥（手把手）
+
+**先分清两个文件**（90% 的失败都出在这里）：
+
+| 文件 | 内容特征 | 放到哪里 |
+| --- | --- | --- |
+| `deploy_blog`（**私钥**） | 首行是 `-----BEGIN OPENSSH PRIVATE KEY-----` | **GitHub Secret `SSH_KEY`** |
+| `deploy_blog.pub`（**公钥**） | 一行 `ssh-ed25519 AAAA…` | **服务器**的 `~/.ssh/authorized_keys` |
+
+#### ① 在服务器上生成一对专用密钥
 
 ```bash
-ssh-keygen -t ed25519 -C "deploy-blog" -f ~/.ssh/deploy_blog -N ""
+# -N "" 表示不设口令：CI 里没法交互输入口令，必须为空
+ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/deploy_blog -N ""
+```
+
+（提示文件已存在就覆盖，或换个名字如 `deploy_blog2`。）
+
+#### ② 把公钥装到"工作流要登录的那个用户"名下
+
+工作流里的 `SSH_USER` 是谁，就装到谁的 `authorized_keys`：
+
+```bash
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
 cat ~/.ssh/deploy_blog.pub >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
-cat ~/.ssh/deploy_blog          # ← 把这段私钥内容复制走，填进 GitHub Secret
 ```
+
+权限不对 sshd 会直接拒绝（服务器日志里是 `Authentication refused: bad ownership or modes`）。
+
+#### ③ 装完先在服务器上自测（别急着动 GitHub）
+
+```bash
+# ① 私钥能否解析（不提示输入口令才算合格）
+ssh-keygen -y -f ~/.ssh/deploy_blog
+
+# ② 公钥确实在 authorized_keys 里（应输出 1）
+grep -c "$(ssh-keygen -y -f ~/.ssh/deploy_blog)" ~/.ssh/authorized_keys
+
+# ③ 用私钥能免密登录（应打印 OK，且不问密码）
+ssh -i ~/.ssh/deploy_blog -o StrictHostKeyChecking=accept-new root@118.31.184.73 "echo OK; hostname"
+```
+
+三条都过 → 密钥没问题；③ 若还问密码 → 公钥没装对或用户不对。
+
+#### ④ 把私钥**全文**填进 GitHub Secret
+
+```bash
+cat ~/.ssh/deploy_blog
+```
+
+复制从 `-----BEGIN OPENSSH PRIVATE KEY-----` 到 `-----END OPENSSH PRIVATE KEY-----` 的**全部内容**（别漏行）。
+终端复制容易漏最后一行，更稳的是用 WinSCP（选项 → 面板 → 显示隐藏文件）把 `/root/.ssh/deploy_blog`
+拖到 Windows，用记事本打开全选复制。
+
+仓库 → Settings → Secrets and variables → Actions → 更新 `SSH_KEY`。
+
+#### ⑤ 重跑验证（不用推代码）
+
+Actions → **Deploy to own server** → **Run workflow**。日志开头应出现：
+
+```
+SSH_KEY 首行：-----BEGIN OPENSSH PRIVATE KEY-----
+SSH_KEY 行数：7
+私钥格式 OK，指纹：SHA256:…
+```
+
+接着是**预检**（rsync 是否存在、目标目录是否存在且可写），最后才 rsync 同步。
+
+#### 常见错法对照
+
+| 现象 | 原因 |
+| --- | --- |
+| 首行是 `ssh-ed25519 AAAA…` | 粘的是**公钥** `.pub` |
+| `ssh-keygen -y` 提示输入口令 | 私钥**带 passphrase** → 用 `-N ""` 重新生成 |
+| 首行对但行数偏少 / 末尾没有 END 行 | 复制**不完整** |
+| 首行是 `-----BEGIN PRIVATE KEY-----`（PKCS#8）或 `.ppk` | 格式不对 → 重新用 `ssh-keygen` 生成 OpenSSH 格式 |
+
+#### 可选：不用 root，建一个只用于发布的用户
+
+用 root 意味着这个密钥在服务器上有全部权限。想收窄：
+
+```bash
+useradd -m -s /bin/bash deploy
+mkdir -p /home/deploy/.ssh && chmod 700 /home/deploy/.ssh
+cat ~/.ssh/deploy_blog.pub >> /home/deploy/.ssh/authorized_keys
+chmod 600 /home/deploy/.ssh/authorized_keys && chown -R deploy:deploy /home/deploy/.ssh
+# 让 deploy 能写站点目录，nginx（www-data）仍能读
+chown -R deploy:www-data /var/www/myqian-bao.top
+chmod -R 755 /var/www/myqian-bao.top
+```
+
+然后把 Secret `SSH_USER` 改成 `deploy`（`SSH_TARGET` 不变）。不放心就先不动，root 也能跑通。
 
 ### 5.2 仓库里加 5 个 Secrets
 
