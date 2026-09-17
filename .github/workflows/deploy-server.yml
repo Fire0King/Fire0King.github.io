@@ -1,10 +1,7 @@
 name: Deploy to own server
 
-# 默认**只手动触发**：在还没配好 Secrets 之前，这个工作流不会跑、也不会影响 GitHub Pages 的自动部署。
-# 配置步骤见 docs/deploy-own-server.md 第 5 节（SSH_HOST / SSH_PORT / SSH_USER / SSH_KEY / SSH_TARGET）。
-#
-# 想改成"push 就自动同步到服务器"：把下面 push: 这几行的注释去掉即可
-# （建议先手动跑通一次，确认 rsync 目标和权限都没问题）。
+# 已配置好 Secrets，所以下面 push 段已启用：往 main 推送即自动构建并 rsync 到自己的服务器。
+# 只想手动发布时，把 push: 这几行注释回去即可（Actions 页面仍可 Run workflow）。
 on:
   workflow_dispatch:
     inputs:
@@ -16,11 +13,10 @@ on:
         description: "删除服务器上多余的文件（首次部署建议 false，确认无误后再开）"
         type: boolean
         default: false
-  # push:
-  #   branches: [main]
-  #   paths-ignore:
-  #     - "docs/**"
-  #     - "**.md"
+  push:
+    # 和 deploy.yml（GitHub Pages）保持一致：任何推送到 main/master 都重新构建并同步到服务器；
+    # 不设 paths-ignore，这样写文章、改配置、直播数据更新都会自动上线
+    branches: [master, main]
 
 concurrency:
   group: deploy-own-server
