@@ -127,12 +127,15 @@ sudo apt update && sudo apt install -y nginx
 sudo yum install -y nginx && sudo systemctl enable --now nginx
 
 sudo mkdir -p /var/www/myqian-bao.top
-# 配置见第 6 节，存到 /etc/nginx/conf.d/myqian-bao.top.conf
+
+# ⚠️ 关键一步：把站点配置放进去，否则你打开网址看到的是 nginx 自带的 "Welcome to nginx!"
+#    CentOS / Alibaba Cloud Linux → /etc/nginx/conf.d/myqian-bao.top.conf
+#    Ubuntu / Debian            → /etc/nginx/conf.d/myqian-bao.top.conf（或 sites-available +软链到 sites-enabled）
+#    配置内容见第 6 节「阶段一：先用 HTTP 跑通」。写完必须 reload：
 sudo nginx -t && sudo systemctl reload nginx
 
-# 免费证书（自动续期）
+# 证书等备案通过、域名能走 80 之后再申请（见第 6 节阶段二）
 sudo apt install -y certbot python3-certbot-nginx   # 或 yum install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d myqian-bao.top
 ```
 
 ### 路线 B：宝塔面板（想用图形化界面时）
@@ -307,25 +310,23 @@ GitHub 仓库 → Settings → Secrets and variables → Actions → New reposit
 - `PUBLIC_BASE_PATH=/` → 站点在根路径（**不要**设成 `/xxx`，否则样式和链接全 404）
 - 本地构建时若遇到拉字体失败，可以加 `NODE_OPTIONS=--use-system-ca`（这台开发机的证书链问题，Actions 上不需要）
 
-## 6. Nginx 配置（压缩 + 缓存）
+## 6. Nginx 配置（分两个阶段，别一次写完）
+
+### 阶段一：先用 HTTP 跑通（备案审核期间用 IP 验证）
+
+把下面这段存成 `/etc/nginx/conf.d/myqian-bao.top.conf`（Debian/Ubuntu 放 `sites-available` 再软链到
+`sites-enabled` 也行），然后 `sudo nginx -t && sudo systemctl reload nginx`：
 
 ```nginx
 server {
     listen 80;
-    # 备案通过前可以直接用 IP 访问验证（阿里云拦的是未备案域名的 80/443，IP 访问不受影响）
-    server_name myqian-bao.top www.myqian-bao.top 118.31.184.73;
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
+    listen [::]:80;
+    # 必须把服务器 IP 也写进来：备案通过前你是用 http://118.31.184.73/ 访问的，
+    # 只写域名的话 IP 请求会落到 nginx 自带的默认站点 → 显示 "Welcome to nginx!"
     server_name myqian-bao.top www.myqian-bao.top 118.31.184.73;
 
     root /var/www/myqian-bao.top;   # 宝塔路线则是 /www/wwwroot/myqian-bao.top
     index index.html;
-
-    ssl_certificate     /path/to/fullchain.pem;   # 宝塔会在站点配置里自动写好这两行
-    ssl_certificate_key /path/to/privkey.pem;
 
     # 压缩
     gzip on;
@@ -359,6 +360,35 @@ server {
 }
 ```
 
+顺便把 nginx 自带的示例站关掉，免得它抢请求：
+
+```bash
+# CentOS / Alibaba Cloud Linux
+sudo rm -f /etc/nginx/conf.d/default.conf
+# Debian / Ubuntu
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 阶段二：备案通过后加 HTTPS
+
+**备案通过前不要写 80 → 443 的跳转**：那时候还没有证书，跳过去只会看到证书错误。
+等备案通过（域名能正常走 80）后，用 certbot 自动改配置：
+
+```bash
+sudo certbot --nginx -d myqian-bao.top            # 会自动申请证书并写入 ssl_certificate
+sudo certbot --nginx -d myqian-bao.top -d www.myqian-bao.top
+# 想强制 HTTPS：certbot 会问是否 redirect，选 2（Redirect）
+```
+
+certbot 会把证书路径、443 server 块、80→443 跳转都加好，缓存/压缩规则保留不动。
+之后 `systemctl list-timers | grep certbot` 可以确认自动续期。
+
+
+    error_page 404 /404.html;
+}
+```
+
 ## 7. 回滚
 
 发布前留一份备份，出问题直接覆盖回去：
@@ -374,14 +404,36 @@ tar -xzf /root/backup/blog-20260918-1200.tgz -C /var/www/myqian-bao.top
 
 | 现象 | 排查方向 |
 | --- | --- |
+| 打开是 **"Welcome to nginx!"** | 请求被 nginx 自带默认站点接走了。自查三步：① `grep -rln "myqian-bao.top" /etc/nginx/` 看你的配置文件在哪、`nginx -T \| grep -nE "server_name\|root "` 看**你的块里 `root` 是否指向上传目录**（很多人是 `/var/www/html`，那是欢迎页目录）；② 用 IP 访问时 `server_name` 里必须写进服务器 IP（只有域名匹配不上就落到 `default_server`）；③ 改完必须 `nginx -t && systemctl reload nginx` |
 | 外网打不开，服务器上 `curl -I http://127.0.0.1` 正常 | 阿里云**安全组**没放行 80/443；或未备案被拦（见 1.2） |
 | 403 Forbidden | 站点目录权限/属主不对：`chown -R www:www 目录`（宝塔）或 `nginx/www-data` |
 | 页面能开但样式/图片全丢 | 构建时 `PUBLIC_BASE_PATH` 不是 `/` |
 | 分享卡片/canonical 还是 github.io | 构建时没设 `PUBLIC_SITE_URL` |
 | 内页 404 | 少了 `try_files $uri $uri/index.html $uri.html` 这一段 |
+| 用 IP 访问提示证书错误 | 证书是按域名签发的，不覆盖 IP；备案前用 `http://IP`，或者直接用域名访问 |
 | 502 / 站点时好时坏 | 内存不足：看 `free -h`、`dmesg -T \| tail`，确认 swap 生效 |
 | rsync 报 Permission denied | 目标目录属主与 `SSH_USER` 不一致，或私钥没配对（`authorized_keys` 权限 600） |
 | 打开很慢 | 服务器带宽只有几 Mbps；图片/视频建议继续放图床；后续可加国内 CDN |
+
+### 8.1 诊断"到底哪个 server 块在服务我"
+
+```bash
+# 1) 看最终生效的配置（含每个块的位置、listen、server_name、root）
+sudo nginx -T | grep -nE "listen|server_name|root " | head -40
+
+# 2) 用 Host 头区分：带 Host 正常、不带显示欢迎页 → server_name 没写 IP
+curl -I -H "Host: myqian-bao.top" http://127.0.0.1/
+curl -I http://127.0.0.1/
+
+# 3) 你的配置和 nginx 自带默认站点分别在哪
+grep -rln "myqian-bao.top" /etc/nginx/
+grep -rln "default_server" /etc/nginx/
+```
+
+> ⚠️ 如果 `grep` 显示**你的域名和 `default_server` 在同一个文件里**（例如都写在 `sites-enabled/default`），
+> 不要直接删这个文件 —— certbot 加的 443/证书配置可能也在里面。只改 `root`（指向上传目录）和
+> `server_name`（把服务器 IP 写进去）即可：IP 请求命中你的块后，就不会再落到 `default_server`。
+
 
 ## 9. 和 GitHub Pages 并存
 
