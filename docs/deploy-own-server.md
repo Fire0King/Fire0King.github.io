@@ -384,10 +384,98 @@ sudo certbot --nginx -d myqian-bao.top -d www.myqian-bao.top
 certbot 会把证书路径、443 server 块、80→443 跳转都加好，缓存/压缩规则保留不动。
 之后 `systemctl list-timers | grep certbot` 可以确认自动续期。
 
+### 6.1 已经跑过 certbot 的机器：一个文件直接复制
 
+如果你之前已经 `certbot --nginx` 过（机器上已经有 443/certbot 的配置），**不要直接再新建一份**
+—— 会出现同一个 `server_name` 出现在两个文件里，nginx 只认先加载的那个（表现为"改了没生效"）。
+
+**先备份并移走旧配置**（包括 nginx 自带的默认站点，它是 80 的 default_server）：
+
+```bash
+ls -l /etc/nginx/conf.d/ /etc/nginx/sites-enabled/ 2>/dev/null
+grep -rln "myqian-bao.top" /etc/nginx/          # 看看你的配置在哪些文件里
+sudo mkdir -p /root/nginx-backup
+sudo mv /etc/nginx/sites-enabled/default       /root/nginx-backup/ 2>/dev/null   # Debian/Ubuntu 默认站
+sudo mv /etc/nginx/sites-enabled/myqian-bao.top /root/nginx-backup/ 2>/dev/null  # 之前写的那份
+sudo mv /etc/nginx/conf.d/default.conf          /root/nginx-backup/ 2>/dev/null  # CentOS 默认站
+sudo certbot certificates                       # 确认证书路径（下面配置里要用）
+```
+
+再新建 `/etc/nginx/conf.d/myqian-bao.top.conf`，**整段复制**下面内容（HTTP 和 HTTPS 都覆盖了，
+所以不管备案走到哪一步、用 IP 还是域名都能访问）：
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name myqian-bao.top www.myqian-bao.top 118.31.184.73;
+
+    root /var/www/myqian-bao.top;
+    index index.html;
+
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json
+               image/svg+xml application/xml application/rss+xml;
+
+    location /_astro/ { expires 1y; add_header Cache-Control "public, immutable"; }
+    location /pagefind/ { expires 1d; }
+    location ~* \.(?:woff2?|ttf|otf)$ { expires 1y; add_header Cache-Control "public, immutable"; }
+    location ~* \.(?:webp|avif|png|jpe?g|gif|svg|mp4|webm)$ { expires 1h; }
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/index.html $uri.html =404;
+    }
+    error_page 404 /404.html;
+
+    # 备案通过、域名能正常走 80 之后，取消下一行注释即可强制跳 HTTPS
+    # return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name myqian-bao.top www.myqian-bao.top 118.31.184.73;
+
+    # 路径以 `sudo certbot certificates` 的输出为准
+    ssl_certificate     /etc/letsencrypt/live/myqian-bao.top/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/myqian-bao.top/privkey.pem;
+
+    root /var/www/myqian-bao.top;
+    index index.html;
+
+    # nginx 的 server 块之间不继承，所以 gzip 和 location 段要再写一遍
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json
+               image/svg+xml application/xml application/rss+xml;
+
+    location /_astro/ { expires 1y; add_header Cache-Control "public, immutable"; }
+    location /pagefind/ { expires 1d; }
+    location ~* \.(?:woff2?|ttf|otf)$ { expires 1y; add_header Cache-Control "public, immutable"; }
+    location ~* \.(?:webp|avif|png|jpe?g|gif|svg|mp4|webm)$ { expires 1h; }
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/index.html $uri.html =404;
+    }
     error_page 404 /404.html;
 }
 ```
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+
+# 验证
+curl -I -H "Host: myqian-bao.top" http://127.0.0.1/    # 期望 200 或 301
+curl -s http://127.0.0.1/ | head -c 120                # 应出现你自己的 HTML，而不是 Welcome to nginx
+```
+
+> 证书用的是域名，所以 **`https://118.31.184.73/` 一定会报证书错误**（证书不覆盖 IP）—— 用 IP 测就测 HTTP。
+> 想要 HTTP/2：先 `nginx -v` 看版本，≥1.25.1 用 `http2 on;`，更老的用 `listen 443 ssl http2;`，
+> 版本不确定就先不加（静态博客 HTTP/1.1 也够）。
+
 
 ## 7. 回滚
 
