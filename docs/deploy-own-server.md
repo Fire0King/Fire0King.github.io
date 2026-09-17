@@ -189,13 +189,14 @@ GitHub 仓库 → Settings → Secrets and variables → Actions → New reposit
 ```nginx
 server {
     listen 80;
-    server_name myqian-bao.top www.myqian-bao.top;
+    # 备案通过前可以直接用 IP 访问验证（阿里云拦的是未备案域名的 80/443，IP 访问不受影响）
+    server_name myqian-bao.top www.myqian-bao.top 118.31.184.73;
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name myqian-bao.top www.myqian-bao.top;
+    server_name myqian-bao.top www.myqian-bao.top 118.31.184.73;
 
     root /www/wwwroot/myqian-bao.top;
     index index.html;
