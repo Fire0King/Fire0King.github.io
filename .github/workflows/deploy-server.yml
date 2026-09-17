@@ -75,11 +75,18 @@ jobs:
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          echo "SSH_KEY 首行：$(head -n1 ~/.ssh/deploy_key)"
+          echo "SSH_KEY 行数：$(wc -l < ~/.ssh/deploy_key)"
           # 私钥能解析出公钥，说明格式没问题（不会打印私钥内容）
           if key=$(ssh-keygen -y -f ~/.ssh/deploy_key 2>/dev/null); then
             echo "私钥格式 OK，指纹：$(echo "$key" | ssh-keygen -lf - | awk '{print $2}')"
           else
-            echo "::error::SSH_KEY 不是有效的未加密 OpenSSH 私钥（不能带 passphrase，需包含完整的 BEGIN/END 行）"
+            echo "::error::SSH_KEY 不是有效的未加密 OpenSSH 私钥。常见原因："
+            echo "::error::1) 粘成了公钥（首行应是 -----BEGIN OPENSSH PRIVATE KEY-----，而不是 ssh-ed25519/ssh-rsa AAAA…）"
+            echo "::error::2) 私钥带 passphrase（生成时要加 -N \"\"）"
+            echo "::error::3) 复制不完整，缺少 BEGIN/END 行或中间有截断"
+            echo "::error::4) 是 PuTTY .ppk / PKCS#8 格式（需转成 OpenSSH 格式）"
+            echo "::error::修复办法见 docs/deploy-own-server.md 第 5.1 节"
             exit 1
           fi
 
