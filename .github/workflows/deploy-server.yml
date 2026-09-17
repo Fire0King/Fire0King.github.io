@@ -1,7 +1,12 @@
 name: Deploy to own server
 
-# 已配置好 Secrets，所以下面 push 段已启用：往 main 推送即自动构建并 rsync 到自己的服务器。
-# 只想手动发布时，把 push: 这几行注释回去即可（Actions 页面仍可 Run workflow）。
+# 往 main/master 推送即构建并 rsync 到自建服务器（和 deploy.yml 的 GitHub Pages 部署并行）。
+# 也可以手动触发：Actions → Deploy to own server → Run workflow。
+#
+# 需要的 Secrets（配置步骤见 docs/deploy-own-server.md 第 5 节）：
+#   SSH_HOST（服务器 IP）、SSH_PORT（一般 22）、SSH_USER（登录用户）、
+#   SSH_KEY（部署私钥的完整内容，OpenSSH 格式、不要带 passphrase）、
+#   SSH_TARGET（站点根目录，如 /var/www/myqian-bao.top）
 on:
   workflow_dispatch:
     inputs:
@@ -10,12 +15,10 @@ on:
         required: false
         default: "https://myqian-bao.top"
       prune:
-        description: "删除服务器上多余的文件（首次部署建议 false，确认无误后再开）"
+        description: "删除服务器上多余的文件（--delete），核对目录无误后再开"
         type: boolean
         default: false
   push:
-    # 和 deploy.yml（GitHub Pages）保持一致：任何推送到 main/master 都重新构建并同步到服务器；
-    # 不设 paths-ignore，这样写文章、改配置、直播数据更新都会自动上线
     branches: [master, main]
 
 concurrency:
@@ -65,20 +68,61 @@ jobs:
           PUBLIC_BASE_PATH: /
         run: pnpm build
 
+      - name: 写入部署私钥
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # 私钥能解析出公钥，说明格式没问题（不会打印私钥内容）
+          if key=$(ssh-keygen -y -f ~/.ssh/deploy_key 2>/dev/null); then
+            echo "私钥格式 OK，指纹：$(echo "$key" | ssh-keygen -lf - | awk '{print $2}')"
+          else
+            echo "::error::SSH_KEY 不是有效的未加密 OpenSSH 私钥（不能带 passphrase，需包含完整的 BEGIN/END 行）"
+            exit 1
+          fi
+
+      - name: 预检（SSH 连通性 / rsync / 目标目录）
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          SSH_TARGET: ${{ secrets.SSH_TARGET }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" \
+              -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 \
+              "$SSH_USER@$SSH_HOST" "TARGET='$SSH_TARGET' bash -s" <<'REMOTE'
+          set -u
+          echo "SSH 连接成功：$(hostname)"
+          if ! command -v rsync >/dev/null; then
+            echo "❌ 服务器没装 rsync —— 请在服务器上执行：sudo apt install -y rsync"; exit 3
+          fi
+          echo "rsync：$(rsync --version | head -n1)"
+          if [ ! -d "$TARGET" ]; then
+            echo "❌ 目标目录不存在：$TARGET —— 先 mkdir -p 并 chown 给 nginx 用户"; exit 4
+          fi
+          if [ ! -w "$TARGET" ]; then
+            echo "❌ 目标目录不可写：$TARGET（检查属主/权限，或换用有权限的用户）"; exit 5
+          fi
+          echo "✅ 预检通过：$TARGET 存在且可写"
+          REMOTE
+
       - name: 同步 dist/ 到服务器
-        uses: burnett01/rsync-deployments@7.0.2
-        with:
-          # prune 打开时才会删除服务器上多余的文件（首次部署建议先关着）
-          switches: -avzr ${{ inputs.prune && '--delete' || '' }} --exclude='.user.ini'
-          path: dist/
-          remote_path: ${{ secrets.SSH_TARGET }}
-          remote_host: ${{ secrets.SSH_HOST }}
-          remote_port: ${{ secrets.SSH_PORT || '22' }}
-          remote_user: ${{ secrets.SSH_USER }}
-          remote_key: ${{ secrets.SSH_KEY }}
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          SSH_TARGET: ${{ secrets.SSH_TARGET }}
+        run: |
+          set -o pipefail
+          rsync -avz --human-readable ${{ inputs.prune && '--delete' || '' }} --exclude='.user.ini' \
+            -e "ssh -i ~/.ssh/deploy_key -p $SSH_PORT -o StrictHostKeyChecking=accept-new -o BatchMode=yes" \
+            dist/ "$SSH_USER@$SSH_HOST:$SSH_TARGET/" | tail -n 20
+          echo "✅ 已同步到 $SSH_HOST:$SSH_TARGET"
 
       - name: 完成提示
         run: |
-          echo "已同步到 ${{ secrets.SSH_HOST }}:${{ secrets.SSH_TARGET }}"
-          echo "注意：域名 80/443 需要完成 ICP 备案后才会被阿里云放行；"
-          echo "备案通过前可以先用 http://<服务器IP>/ 或非标准端口验证站点。"
+          echo "站点地址：${{ inputs.site_url || 'https://myqian-bao.top' }}"
+          echo "注意：域名 80/443 需完成 ICP 备案后才会被阿里云放行；"
+          echo "备案通过前可以先用 http://<服务器IP>/ 验证。"

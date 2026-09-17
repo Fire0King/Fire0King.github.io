@@ -49,3 +49,7 @@ package/
 .codex*
 .claude
 .mimocode
+
+# 本地留档：旧博客的静态副本 / 上传用的压缩包（不进仓库）
+Fire0King.github.io/
+dist.zip
