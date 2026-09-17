@@ -312,7 +312,21 @@ ssh -i ~/.ssh/deploy_blog -o StrictHostKeyChecking=accept-new root@118.31.184.73
 cat ~/.ssh/deploy_blog
 ```
 
-复制从 `-----BEGIN OPENSSH PRIVATE KEY-----` 到 `-----END OPENSSH PRIVATE KEY-----` 的**全部内容**（别漏行）。
+**要复制**：从 `-----BEGIN OPENSSH PRIVATE KEY-----` 到最后一行 `-----END OPENSSH PRIVATE KEY-----` 的**全部内容**
+（这两行本身就是密钥格式的一部分，少一行 ssh 就无法解析；中间的 base64 行一行都不能漏）。
+
+**不要复制**：命令提示符那一行（如 `root@izbp…:~# cat …`）、公钥那行（`ssh-ed25519 AAAA…`）、前后其它命令的输出。
+
+**粘贴前先本地自检**（Windows 自带 `ssh-keygen`）：把要粘的内容存成文件，然后
+
+```powershell
+ssh-keygen -y -f C:\Users\你\deploy_blog
+```
+
+- 打印出一行 `ssh-ed25519 AAAA…`（应与服务器上 `cat ~/.ssh/deploy_blog.pub` 一致）→ 格式正确
+- 报 `invalid format` / `error in libcrypto` → 复制不完整或粘成了公钥
+- 提示 `Enter passphrase` → 私钥带口令，不能用于 Actions（用 `-N ""` 重新生成）
+
 终端复制容易漏最后一行，更稳的是用 WinSCP（选项 → 面板 → 显示隐藏文件）把 `/root/.ssh/deploy_blog`
 拖到 Windows，用记事本打开全选复制。
 
