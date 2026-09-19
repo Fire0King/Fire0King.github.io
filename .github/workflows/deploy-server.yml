@@ -1,7 +1,15 @@
-name: Deploy to own server
+name: Deploy to own server (rsync, manual fallback)
 
-# 往 main/master 推送即构建并 rsync 到自建服务器（和 deploy.yml 的 GitHub Pages 部署并行）。
-# 也可以手动触发：Actions → Deploy to own server → Run workflow。
+# ⚠️ 这是【旧的推送式部署】：CI 通过 SSH 登录服务器再 rsync。
+#    它的副作用是服务器会记录来自国外机房（GitHub 运行器在 Azure）的 root 登录，
+#    阿里云会因此发"异地登录"告警。
+#
+#    现在推荐用【服务器侧拉取】：.github/workflows/publish-site.yml 只发布构建产物，
+#    服务器用 systemd timer 主动来下载 —— 不需要任何入站 SSH。见 docs/deploy-own-server.md 第 5.5 节。
+#
+#    本文件因此改成【只能手动触发】，保留作为应急兜底（例如服务器拉取链路临时不通时）。
+#    确认拉取部署稳定后，可以删掉本文件并删除下面这 5 个 Secrets：
+#      SSH_HOST / SSH_PORT / SSH_USER / SSH_KEY / SSH_TARGET
 #
 # 需要的 Secrets（配置步骤见 docs/deploy-own-server.md 第 5 节）：
 #   SSH_HOST（服务器 IP）、SSH_PORT（一般 22）、SSH_USER（登录用户）、
@@ -18,8 +26,6 @@ on:
         description: "删除服务器上多余的文件（--delete），核对目录无误后再开"
         type: boolean
         default: false
-  push:
-    branches: [master, main]
 
 concurrency:
   group: deploy-own-server

@@ -1,0 +1,15 @@
+[Unit]
+Description=定时拉取最新站点产物（每 2 分钟检查一次）
+
+[Timer]
+# 开机 3 分钟后先跑一次，之后每 2 分钟检查一次（有新版本才真正下载）
+OnBootSec=3min
+OnUnitActiveSec=2min
+# 打散请求，避免整点集中访问 GitHub
+RandomizedDelaySec=20
+AccuracySec=30s
+# 服务器重启期间错过的任务，开机后补跑一次
+Persistent=true
+
+[Install]
+WantedBy=timers.target

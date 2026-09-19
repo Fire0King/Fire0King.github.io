@@ -96,7 +96,9 @@ jobs:
           exit 1
 
       # 数据提交用的是 GITHUB_TOKEN，GitHub 会抑制它产生的 push 事件，
-      # 所以这里显式派发两个部署工作流（workflow_dispatch 是官方保留的例外）
+      # 所以这里显式派发两个工作流（workflow_dispatch 是官方保留的例外）：
+      #   deploy.yml        → 更新 GitHub Pages
+      #   publish-site.yml  → 重新发布构建产物 Release，服务器侧拉取会自己来取
       - name: Trigger deployments
         if: steps.commit.outputs.changed == 'true'
         env:
@@ -105,5 +107,5 @@ jobs:
           set -euo pipefail
           REF="${{ github.ref_name }}"
           gh workflow run deploy.yml --ref "$REF"
-          gh workflow run deploy-server.yml --ref "$REF"
-          echo "已派发部署：GitHub Pages（deploy.yml）+ 自建服务器（deploy-server.yml），ref=$REF"
+          gh workflow run publish-site.yml --ref "$REF"
+          echo "已派发：GitHub Pages（deploy.yml）+ 站点产物（publish-site.yml），ref=$REF"

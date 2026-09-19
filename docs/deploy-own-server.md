@@ -254,12 +254,18 @@ curl -s http://127.0.0.1/ | head -c 120   # 能看到 HTML
 ### 4.6 以后怎么更新
 
 - **手动**：重复 4.1 + 4.2（或 4.3）
-- **自动（推荐）**：按第 5 节配好 Secrets，然后在 GitHub Actions 里跑一次
-  `Deploy to own server`；之后想让 push 自动同步，把工作流里的 `push:` 段取消注释即可
+- **自动（推荐）**：按 **5.5 节**装一次"服务器侧拉取"。之后 push 或数据更新，服务器会在 2 分钟内自己更新，
+  你不用做任何事，也**不需要开放入站 SSH**
+- **自动（旧方式）**：5.1–5.4 的 CI 推送（rsync）。已改成只能手动触发，留作应急兜底
 
-## 5. 自动部署：GitHub Actions → rsync
+## 5. 自动部署（两种方式）
 
-以后 push 一次就自动同步到服务器。
+| 方式 | 原理 | 评价 |
+| --- | --- | --- |
+| **5.5 服务器侧拉取** | CI 只发布构建产物，服务器定时主动来下载 | **推荐**：不需要入站 SSH、不会有异地登录告警、部署私钥也不必放 GitHub |
+| 5.1–5.4 CI 推送（rsync） | CI 用 SSH 登录服务器把文件推上去 | 旧的推送式部署，已改成只能手动触发，留作应急兜底 |
+
+建议先把 **5.5** 跑通；确认侧拉取稳定后，再按 5.5.6 清理旧方式（删 Secrets、删工作流、收紧 22 端口）。
 
 ### 5.1 配置部署专用的 SSH 密钥（手把手）
 
@@ -408,6 +414,149 @@ GitHub 仓库 → Settings → Secrets and variables → Actions → New reposit
 - `PUBLIC_SITE_URL=https://myqian-bao.top` → canonical / sitemap / RSS 都指向新域名
 - `PUBLIC_BASE_PATH=/` → 站点在根路径（**不要**设成 `/xxx`，否则样式和链接全 404）
 - 本地构建时若遇到拉字体失败，可以加 `NODE_OPTIONS=--use-system-ca`（这台开发机的证书链问题，Actions 上不需要）
+
+### 5.5 推荐：服务器侧拉取（不用入站 SSH，也就没有异地登录告警）
+
+**为什么换成这个**：5.1–5.4 的方向是"CI 登录服务器推文件"，而 GitHub 的运行器在国外机房（Azure），
+阿里云会把这种 root 登录判成**异地登录**并告警；同时部署私钥必须放进 GitHub Secrets、22 端口对全网开放。
+侧拉取把方向反过来 —— 服务器自己出站去取：
+
+```
+你 push / 采集机器人提交数据
+        ↓
+GitHub Actions：pnpm build → 打包 site.tar.gz → 发布到 Release（tag: site-latest）
+        ↓（服务器主动下载，出站 HTTPS，不需要任何入站端口）
+systemd timer（每 2 分钟）→ 有新版本才下载 → 解包校验 → rsync 到站点根目录
+```
+
+好处：服务器上不再出现任何"外部 IP 登录"；CI 手里不再持有服务器私钥。
+代价：不是秒级发布，最坏要等 2 分钟（频率可调，见 5.5.7）。
+
+新增的文件：
+
+| 文件 | 作用 |
+| --- | --- |
+| `.github/workflows/publish-site.yml` | 构建 → 打包 → 发布滚动 Release（每次构建覆盖上传附件） |
+| `deploy/server/pull-site.sh` | 服务器侧拉取脚本（比对版本 → 下载 → 校验 → 同步 → 清理旧版本） |
+| `deploy/server/site-pull.service`、`deploy/server/site-pull.timer` | systemd 单元（每 2 分钟检查一次） |
+| `deploy/server/install.sh` | 一键安装脚本 |
+
+#### 5.5.1 三个前提（30 秒确认）
+
+```bash
+# ① 服务器能访问 GitHub —— 侧拉取的前提
+curl -fsI https://github.com | head -n1        # 期望看到 HTTP/2 200 之类
+
+# ② 站点根目录存在（沿用现在的目录即可）
+ls -ld /var/www/myqian-bao.top
+
+# ③ 产物已经发布过：能打开这个页面说明发布工作流跑过了
+#    https://github.com/Fire0King/Fire0King.github.io/releases/tag/site-latest
+```
+
+#### 5.5.2 一键安装（复制粘贴两条命令）
+
+```bash
+curl -fsSL https://github.com/Fire0King/Fire0King.github.io/releases/download/site-latest/install.sh -o /tmp/site-install.sh
+sudo bash /tmp/site-install.sh
+```
+
+脚本做的事（出问题就按这个顺序查）：
+
+1. 检查并补齐 `curl / tar / rsync / flock`
+2. 验证服务器能访问 `github.com`（不通会直接提示，并指向 5.5.5）
+3. 从 Release 下载 `pull-site.sh` 和两个 systemd 单元，装到 `/usr/local/bin`、`/etc/systemd/system`
+4. 把配置写进 `/etc/default/site-pull`（仓库、站点根目录、目录属主、保留版本数）
+5. **立刻同步一次**（前台执行，你直接能看到结果）
+6. 启用 `site-pull.timer`：开机 3 分钟后首跑，之后每 2 分钟检查一次
+
+**目录/属主不是默认值时**（宝塔环境、或 nginx 用户）：
+
+```bash
+sudo SITE_WEB_ROOT=/www/wwwroot/myqian-bao.top SITE_WEB_USER=www bash /tmp/site-install.sh
+```
+
+> 只想先看会发生什么：`sudo env SITE_DRY_RUN=1 /usr/local/bin/site-pull.sh`
+> 它会把产物解包到 `/var/lib/site-pull/releases/<提交号>` 但**不碰线上目录**。
+
+#### 5.5.3 验证
+
+```bash
+journalctl -u site-pull.service -n 50 --no-pager     # 这次同步的完整日志
+cat /var/lib/site-pull/current-sha                   # 当前线上的提交号
+curl -I http://127.0.0.1/                            # 站点正常响应（本机，绕开备案拦截）
+systemctl list-timers site-pull.timer                # 下一次检查时间
+```
+
+想验证"自动更新"整条链：随便改点内容 push（或等采集机器人提交数据），然后在服务器上
+
+```bash
+journalctl -u site-pull.service -f
+```
+
+2 分钟内应看到 `发现新版本 xxx → 已同步到 … → ✅ 发布完成`。
+
+#### 5.5.4 手动操作与回滚
+
+```bash
+sudo /usr/local/bin/site-pull.sh                  # 手动同步一次（没有新版本就不动）
+sudo env SITE_FORCE=1 /usr/local/bin/site-pull.sh # 强制按最新产物重同步一遍
+sudo systemctl disable --now site-pull.timer      # 临时停用自动更新
+
+# 回滚：服务器保留了最近 3 个版本
+ls -1dt /var/lib/site-pull/releases/*/            # 最新的在最上面
+rsync -a --delete /var/lib/site-pull/releases/<要回滚的提交号>/ /var/www/myqian-bao.top/
+```
+
+#### 5.5.5 服务器访问不了 GitHub（国内机房常见）
+
+```bash
+getent hosts github.com                  # 有没有解析结果
+curl -vI https://github.com 2>&1 | tail -n 5
+```
+
+- 只是**慢**：不用管，脚本自带 `--retry 3` 和最长 10 分钟超时。
+- 完全**不通**：换个下载源即可，脚本支持 `SITE_BASE_URL` 指向任意前缀。最省事的是阿里云 OSS
+  （与 ECS 同地域，走内网地址还免流量费）：CI 里加一步把 `site.tar.gz`、`version.json` 传到 OSS，然后
+
+```bash
+sudo nano /etc/default/site-pull
+#   SITE_BASE_URL=https://<你的bucket>.oss-cn-hangzhou-internal.aliyuncs.com/site
+sudo systemctl restart site-pull.timer
+```
+
+- ⚠️ **不要**用公共的"GitHub 加速/代理"站点做部署链路：产物会经过第三方，静态站被注入一段 JS 就会影响所有访客。
+
+#### 5.5.6 收尾：把入站依赖真正去掉（确认稳定后再做）
+
+1. 删除 GitHub 的 5 个 Secrets（`SSH_HOST` / `SSH_PORT` / `SSH_USER` / `SSH_KEY` / `SSH_TARGET`）
+   —— 侧拉取不需要它们，GitHub 上少存一份服务器私钥更安全
+2. 删除 `.github/workflows/deploy-server.yml`（旧的推送式部署）
+3. 阿里云安全组：把 22 端口的来源限制成你自己的常用 IP（此时 CI 已经不需要连服务器了）
+4. sshd 加固：`PasswordAuthentication no`、`PermitRootLogin prohibit-password`，并装 fail2ban
+5. 阿里云历史告警：云安全中心 → **安全告警** → 云工作负载保护平台(CWPP) → 告警类型选 **异常登录**
+   → 选中旧告警 → **加白名单** 或 **忽略**
+
+#### 5.5.7 顺带回答"怎么让阿里云不告警"
+
+- **根因消除（推荐）**：换成侧拉取后，服务器上不会再出现 GitHub 运行器（国外 IP）的登录事件
+- **阿里云侧静音**：云安全中心 → **防护配置 > 主机防护 > 规则管理** → **常用登录管理**，
+  在 **常用登录地 / 常用登录IP** 里把你允许的来源加进去；不想收短信就去 **系统配置 > 通知设置**
+  取消短信（保留站内信，仍然能看到告警）
+- **别把"异常登录"整类关掉**：真被人爆破时，它是唯一的提醒
+
+##### 5.5.8 排错表
+
+| 现象 | 原因 / 处理 |
+| --- | --- |
+| 安装时报 `404` | `publish-site.yml` 还没成功跑过，Release 未生成 → 去 Actions 看那次运行为什么失败 |
+| 日志 `拉取 version.json 失败` | 服务器访问不了 GitHub（见 5.5.5），或 Release 被人删了 |
+| 日志 `缺少命令 flock` | `apt install -y util-linux`（install.sh 会自动装） |
+| 日志说发布完成，但页面没变 | ① `curl -I http://127.0.0.1/` 确认服务器文件确实变了；② 浏览器强刷 Ctrl+F5；③ `nginx -T \| grep root` 确认 nginx 的 `root` 就是 `SITE_WEB_ROOT` |
+| 页面 403 | 属主不对：`SITE_WEB_USER` 要与 nginx 运行用户一致（Ubuntu 是 `www-data`） |
+| 想改成 5 分钟检查一次 | `sudo systemctl edit site-pull.timer` → 写 `[Timer]` 和 `OnUnitActiveSec=5min` → `systemctl daemon-reload && systemctl restart site-pull.timer` |
+| 服务器上残留了旧文件没被删 | 脚本保留了 `.user.ini`（宝塔用）和 `.well-known`（ACME 用），属预期行为 |
+| 磁盘被历史版本占满 | `SITE_KEEP` 默认保留 3 个版本，可在 `/etc/default/site-pull` 调小 |
 
 ## 6. Nginx 配置（分两个阶段，别一次写完）
 
@@ -599,6 +748,13 @@ tar -czf /root/backup/blog-$(date +%Y%m%d-%H%M).tgz -C /var/www/myqian-bao.top .
 tar -xzf /root/backup/blog-20260918-1200.tgz -C /var/www/myqian-bao.top
 ```
 
+用**服务器侧拉取**（5.5 节）时更省事，服务器上就留着最近 3 个版本，直接覆盖回去即可：
+
+```bash
+ls -1dt /var/lib/site-pull/releases/*/     # 最新的在最上面
+rsync -a --delete /var/lib/site-pull/releases/<要回滚的提交号>/ /var/www/myqian-bao.top/
+```
+
 ## 8. 排错
 
 | 现象 | 排查方向 |
@@ -690,7 +846,7 @@ grep -rln "default_server" /etc/nginx/
 | | GitHub Pages | 自己的服务器 |
 | --- | --- | --- |
 | 地址 | `https://fire0king.github.io/` | `https://myqian-bao.top/` |
-| 构建 | `deploy.yml`（Actions） | `deploy-server.yml`（Actions）或手动 |
+| 构建 | `deploy.yml`（Actions） | `publish-site.yml` 发布产物，服务器的 `site-pull.timer` 再来拉取（见 5.5） |
 | 数据 | 同一份仓库 JSON，两边都会跟着重建 | 同左 |
 
 想只用一边也行：把对应的工作流删掉/停用即可。

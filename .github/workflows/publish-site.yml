@@ -1,0 +1,111 @@
+name: Publish site release
+
+# 构建站点，并把构建产物发布到「滚动 Release」（tag: site-latest），供【服务器侧拉取】部署使用。
+#
+# 服务器不需要开放任何入站 SSH：它用 systemd timer 定时来下载 site.tar.gz 并本地同步，
+# 所以不会再出现"国外 IP 登录服务器"的异地登录告警。原理与配置见 docs/deploy-own-server.md 第 5.5 节。
+#
+# 发布出来的附件（每次构建覆盖上传，URL 固定）：
+#   site.tar.gz          站点产物（dist/ 打包，解包后根目录就是 index.html）
+#   site.tar.gz.sha256   校验值
+#   version.json         本次构建的提交号/时间，服务器靠它判断要不要更新
+#   pull-site.sh         服务器侧拉取脚本
+#   install.sh           服务器侧一键安装脚本
+#   site-pull.service / site-pull.timer   systemd 单元
+#
+# 与 deploy.yml（GitHub Pages）并行，两者互不影响。
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: "构建时注入的站点地址（canonical / sitemap / RSS 用）"
+        required: false
+        default: "https://myqian-bao.top"
+  push:
+    branches: [master, main]
+
+concurrency:
+  # 不取消进行中的构建：上传 Release 附件被中途打断可能留下半个文件
+  group: publish-site
+  cancel-in-progress: false
+
+# 创建/更新 Release 需要写权限（工作流级声明会覆盖仓库默认设置）
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SITE_URL: ${{ inputs.site_url || 'https://myqian-bao.top' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建
+        env:
+          # 站点在根路径，PUBLIC_BASE_PATH 必须是 /，否则样式和链接会 404
+          PUBLIC_SITE_URL: ${{ env.SITE_URL }}
+          PUBLIC_BASE_PATH: /
+        run: pnpm build
+
+      - name: 打包产物
+        run: |
+          set -euo pipefail
+          tar -czf site.tar.gz -C dist .
+          # 产物健全性检查：解包后根目录必须有 index.html，坏包不发布
+          if ! tar -tzf site.tar.gz | grep -qx './index.html'; then
+            echo "::error::产物里没有 index.html，拒绝发布"
+            exit 1
+          fi
+          echo "文件数：$(tar -tzf site.tar.gz | wc -l)"
+          sha256sum site.tar.gz | tee site.tar.gz.sha256
+          du -h site.tar.gz
+
+      - name: 生成 version.json
+        run: |
+          set -euo pipefail
+          printf '{"sha":"%s","short":"%s","built_at":"%s","site_url":"%s","run_id":"%s","run_number":"%s"}\n' \
+            "$GITHUB_SHA" "${GITHUB_SHA:0:7}" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+            "$SITE_URL" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" > version.json
+          cat version.json
+
+      - name: 发布到滚动 Release（site-latest）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NOTES="站点构建产物（滚动更新，每次构建覆盖上传）。服务器侧拉取部署用，请勿手动删除本 Release。
+          下载：site.tar.gz / version.json；安装：install.sh。详见 docs/deploy-own-server.md 第 5.5 节。"
+          if gh release view site-latest >/dev/null 2>&1; then
+            gh release edit site-latest --notes "$NOTES"
+            echo "Release 已存在，覆盖附件"
+          else
+            gh release create site-latest \
+              --title "站点产物（滚动更新）" \
+              --notes "$NOTES" \
+              --latest=false
+            echo "已创建 Release site-latest"
+          fi
+          gh release upload site-latest \
+            site.tar.gz \
+            site.tar.gz.sha256 \
+            version.json \
+            deploy/server/pull-site.sh \
+            deploy/server/install.sh \
+            deploy/server/site-pull.service \
+            deploy/server/site-pull.timer \
+            --clobber
+          echo "附件地址：https://github.com/${{ github.repository }}/releases/download/site-latest/site.tar.gz"

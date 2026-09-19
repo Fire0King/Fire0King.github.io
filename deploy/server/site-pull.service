@@ -1,0 +1,17 @@
+[Unit]
+Description=拉取最新站点产物并同步到站点根目录（服务器侧拉取部署）
+Documentation=file:///usr/local/bin/site-pull.sh
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# 配置项（SITE_WEB_ROOT / SITE_WEB_USER 等）由安装脚本写在 /etc/default/site-pull
+EnvironmentFile=-/etc/default/site-pull
+ExecStart=/usr/local/bin/site-pull.sh
+# 构建产物同步是低优先级任务，别和 AstrBot / TS3 抢 CPU
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+# 万一卡在网络上，别让它一直挂着
+TimeoutStartSec=15min
