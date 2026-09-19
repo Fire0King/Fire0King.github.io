@@ -34,9 +34,11 @@ const { badge, url, label } = Astro.props;
         <div class="overflow-hidden text-left whitespace-nowrap text-ellipsis">
             <slot></slot>
         </div>
+        {/* 徽标在暗色下的底色是亮色 --primary，必须配深色文字；
+            不能用 --deep-text（它在暗色下已是近白色，会变成浅字贴浅底） */}
         { badge !== undefined && badge !== null && badge !== '' &&
             <div class="transition px-2 h-7 ml-4 min-w-8 rounded-lg text-sm font-bold
-                text-(--btn-content) dark:text-(--deep-text)
+                text-(--btn-content) dark:text-[oklch(0.22_0.03_var(--hue))]
                 bg-[oklch(0.95_0.025_var(--hue))] dark:bg-(--primary)
                 flex items-center justify-center">
                 { badge }

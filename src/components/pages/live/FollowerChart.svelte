@@ -295,6 +295,17 @@ function shortDate(date: string): string {
 		color: oklch(0.6 0.19 20);
 	}
 
+	/* 暗色下卡片本身是深色，涨跌色要提亮才看得清（oklch 0.6 在深底上只有 ~4.5，红绿都偏暗） */
+	:global(.dark) .follower-chart-metric-value.is-up,
+	:global(.dark) .follower-chart-tooltip-row.is-up strong {
+		color: oklch(0.78 0.15 155);
+	}
+
+	:global(.dark) .follower-chart-metric-value.is-down,
+	:global(.dark) .follower-chart-tooltip-row.is-down strong {
+		color: oklch(0.74 0.17 20);
+	}
+
 	/* 纵轴刻度 + 图表主体 */
 	.follower-chart-plot {
 		display: grid;

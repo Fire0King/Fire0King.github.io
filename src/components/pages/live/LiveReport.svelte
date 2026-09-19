@@ -630,6 +630,12 @@ function activeElapsed(start: string): string {
 		font-weight: 600;
 	}
 
+	/* 暗色下保持同一个红，但提亮：固定色 #e11d48 在深底上对比度只有 ~2 */
+	:global(.dark) .live-report-live-badge {
+		background-color: rgba(244, 63, 94, 0.2);
+		color: oklch(0.75 0.16 15);
+	}
+
 	.live-report-live-detail {
 		font-weight: 400;
 		opacity: 0.85;

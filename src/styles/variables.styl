@@ -113,6 +113,9 @@
   --line-color: rgba(255, 255, 255, 0.1)
   --meta-divider: rgba(255, 255, 255, 0.2)
   --content-meta: rgba(255, 255, 255, 0.6)
+  /* 亮色下 --deep-text 是近黑文字，暗色必须翻成近白：
+     否则直播报表的标题/统计数字、粉丝报表数值、日历日期等会"深色贴深色"（对比度 ~1.1，几乎不可见） */
+  --deep-text: oklch(0.93 0.02 var(--hue))
   
   --muted: oklch(0.25 0.015 var(--hue))
   --selection-bg: oklch(0.40 0.08 var(--hue))
