@@ -1,0 +1,14 @@
+﻿# 千宝观测站
+> 关注又千喵，关注又千谢谢喵
+
+## Key Pages
+- [主页](https://myqian-bao.top/)
+- [归档](https://myqian-bao.top/archive/)
+- [关于我](https://myqian-bao.top/about/)
+- [动态](https://myqian-bao.top/dynamic/): 随手记下此刻的想法与日常。
+- [相册](https://myqian-bao.top/gallery/): 记录生活中的美好瞬间
+- [书签导航](https://myqian-bao.top/booknav/): 收藏一些好用的网站，按分类整理
+- [直播数据](https://myqian-bao.top/live/): 记录每一次开播的日期、平台、时长与标题，以及各平台粉丝的每日增减
+
+## Recent Posts
+- [ElysiaOS 安装手册](https://myqian-bao.top/posts/elysiaos-install-guide/): 基于 Arch Linux + Hyprland 的 ElysiaOS 完整安装记录：启动盘与 Live 环境、安装流程与报错处理、GRUB 引导修复、Windows 双系统启动顺序，以及装完后的日常配置。
