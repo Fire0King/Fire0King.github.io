@@ -65,12 +65,16 @@ jobs:
         run: |
           set -euo pipefail
           tar -czf site.tar.gz -C dist .
-          # 产物健全性检查：解包后根目录必须有 index.html，坏包不发布
-          if ! tar -tzf site.tar.gz | grep -qx './index.html'; then
-            echo "::error::产物里没有 index.html，拒绝发布"
+          # ⚠️ 不要写成 `tar -tzf … | grep -q …`：grep -q 命中即退出，tar 会收到 SIGPIPE(141)，
+          #    再配合 pipefail 就会被误判成"没找到"（本工作流第一版就踩了这个坑，实测退出码 141）。
+          #    先把列表落盘，再对文件做匹配。
+          tar -tzf site.tar.gz >/tmp/site-list.txt
+          echo "文件数：$(wc -l </tmp/site-list.txt)"
+          # 兼容 ./index.html 与 index.html 两种前缀
+          if ! grep -qE '^(\./)?index\.html$' /tmp/site-list.txt; then
+            echo "::error::产物里没有 index.html，拒绝发布。列表前 10 项：$(head -n 10 /tmp/site-list.txt | tr '\n' ' ')"
             exit 1
           fi
-          echo "文件数：$(tar -tzf site.tar.gz | wc -l)"
           sha256sum site.tar.gz | tee site.tar.gz.sha256
           du -h site.tar.gz
 

@@ -61,7 +61,10 @@ if ! curl -fsSL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 60 \
 	die "拉取 version.json 失败 —— 先在服务器上确认能访问 GitHub：curl -I https://github.com（若不通见文档 5.5.5 节）"
 fi
 
-REMOTE_SHA="$(sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$TMP_DIR/version.json" | head -n1)"
+# 注意：这里刻意不写 `| head -n1`。grep/sed 的输出被 head 提前关闭会产生 SIGPIPE(141)，
+# 配合 set -o pipefail 会让脚本误判为失败。改成先取值、再用 ${var%%换行*} 截断。
+REMOTE_SHA="$(sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$TMP_DIR/version.json")"
+REMOTE_SHA="${REMOTE_SHA%%$'\n'*}"
 [ -n "$REMOTE_SHA" ] || die "version.json 里没有 sha 字段：$(head -c 200 "$TMP_DIR/version.json")"
 
 STATE_FILE="$STATE_DIR/current-sha"
@@ -114,5 +117,6 @@ if [ -d "$STATE_DIR/releases" ]; then
 	done
 fi
 
-BUILT_AT="$(sed -n 's/.*"built_at"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$STATE_DIR/version.json" | head -n1)"
+BUILT_AT="$(sed -n 's/.*"built_at"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$STATE_DIR/version.json")"
+BUILT_AT="${BUILT_AT%%$'\n'*}"
 log "✅ 发布完成：${REMOTE_SHA:0:7}（构建于 ${BUILT_AT:-未知}）"
