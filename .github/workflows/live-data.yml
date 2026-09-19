@@ -1,7 +1,13 @@
 name: Live data collector
 
 # 定时抓取 B站 / 抖音 的直播状态与粉丝数，写入 src/data/live/*.json
-# 提交后部署工作流（GitHub Pages）会自动重新构建，页面即可看到最新数据。
+# 数据有变化时：先提交，再显式派发部署工作流（Pages + 自建服务器），页面即可看到最新数据。
+#
+# ⚠️ 为什么要"显式派发"：本工作流用默认的 GITHUB_TOKEN 推送，而 GitHub 会抑制由
+#    GITHUB_TOKEN 产生的 push 事件（防递归），所以数据提交【不会】自动触发 deploy.yml。
+#    解决办法就是在提交成功后用 `gh workflow run` 手动派发一次（workflow_dispatch 是
+#    GitHub 明确保留的例外，见 https://github.blog/changelog/2022-09-08-github-actions-use-github_token-with-workflow_dispatch-and-repository_dispatch/），
+#    因此需要给本工作流 actions: write 权限。
 #
 # 仓库：Fire0King/Fire0King.github.io（用户站，默认分支 main，站点在根路径）
 #
@@ -27,9 +33,10 @@ on:
       - "src/config/live-report.config.json"
       - ".github/workflows/live-data.yml"
 
-# 需要写权限才能把采集结果提交回仓库
+# contents: write 用于把采集结果提交回仓库；actions: write 用于派发部署工作流
 permissions:
   contents: write
+  actions: write
 
 # 同一时间只跑一个采集任务，避免两个任务同时改写数据文件
 concurrency:
@@ -62,9 +69,11 @@ jobs:
         run: node scripts/live-data/collect.mjs
 
       - name: Commit data changes
+        id: commit
         run: |
           set -euo pipefail
           if [ -z "$(git status --porcelain src/data/live)" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "数据无变化，跳过提交"
             exit 0
           fi
@@ -76,6 +85,7 @@ jobs:
           # 采集期间可能有人推了新提交，push 失败就 rebase 后重试
           for attempt in 1 2 3; do
             if git push; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "push 失败，第 ${attempt} 次重试前先 rebase"
@@ -84,3 +94,16 @@ jobs:
           done
           echo "连续三次 push 失败，请检查分支保护规则是否允许 Actions 推送" >&2
           exit 1
+
+      # 数据提交用的是 GITHUB_TOKEN，GitHub 会抑制它产生的 push 事件，
+      # 所以这里显式派发两个部署工作流（workflow_dispatch 是官方保留的例外）
+      - name: Trigger deployments
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REF="${{ github.ref_name }}"
+          gh workflow run deploy.yml --ref "$REF"
+          gh workflow run deploy-server.yml --ref "$REF"
+          echo "已派发部署：GitHub Pages（deploy.yml）+ 自建服务器（deploy-server.yml），ref=$REF"
