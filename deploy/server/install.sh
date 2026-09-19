@@ -12,7 +12,9 @@
 set -euo pipefail
 
 REPO="${SITE_REPO:-Fire0King/Fire0King.github.io}"
+BRANCH="${SITE_BRANCH:-site-dist}"
 TAG="${SITE_TAG:-site-latest}"
+ARCHIVE_URL="${SITE_ARCHIVE_URL:-https://codeload.github.com/${REPO}/tar.gz/refs/heads/${BRANCH}}"
 BASE="${SITE_BASE_URL:-https://github.com/${REPO}/releases/download/${TAG}}"
 WEB_ROOT="${SITE_WEB_ROOT:-/var/www/myqian-bao.top}"
 WEB_USER="${SITE_WEB_USER:-www-data}"
@@ -40,17 +42,26 @@ if [ -n "$missing" ]; then
 fi
 echo "依赖 OK：$(curl --version | head -n1)"
 
-echo "== 2/6 验证能下载 Release 附件（侧拉取的前提）=="
-# 注意：要测的是【附件地址】，不是 github.com —— 附件会跳转到 GitHub 的 CDN 主机
-# release-assets.githubusercontent.com，国内部分网络只对它有影响。
-if ! curl -fsSI -o /dev/null --connect-timeout 10 --max-time 30 "$BASE/version.json"; then
-	echo "❌ 下载不了 $BASE/version.json。常见原因与处理：" >&2
-	echo "   · DNS：getent hosts github.com / release-assets.githubusercontent.com" >&2
-	echo "   · 只测试 github.com 能通不代表附件能通，请以上面这条命令为准" >&2
-	echo "   · 确实不通时改用文档 5.5.5 节的 OSS 中转（把 SITE_BASE_URL 指过去即可）" >&2
+echo "== 2/6 验证能下载构建产物（侧拉取的前提）=="
+# 注意两点：
+#   ① 要测的是【产物归档】这条通道，"能打开 github.com"不代表能下载；
+#   ② 必须带 -L 跟随跳转，否则 -I 只拿到 302 空页，"看起来成功"其实没下载到东西。
+SPEED=$(curl -fsSL -o /dev/null --connect-timeout 10 --max-time 180 \
+	-w '%{http_code} %{size_download} %{time_total} %{speed_download}' "$ARCHIVE_URL" 2>/dev/null) || SPEED=""
+if [ -z "$SPEED" ]; then
+	echo "❌ 下载不了产物：$ARCHIVE_URL。常见原因与处理：" >&2
+	echo "   · DNS：getent hosts codeload.github.com" >&2
+	echo "   · 线路被限速/阻断时，改用文档 5.5.5 节的办法换源（把 SITE_ARCHIVE_URL 指到 OSS 等）" >&2
 	exit 1
 fi
-echo "附件可下载：$(curl -fsS --connect-timeout 10 --max-time 30 "$BASE/version.json")"
+read -r HTTP_CODE BYTES TIME_SEC SPEED_BPS <<<"$SPEED" || true
+MB=$(awk -v b="${BYTES:-0}" 'BEGIN{printf "%.1f", b/1048576}')
+KBPS=$(awk -v s="${SPEED_BPS:-0}" 'BEGIN{printf "%d", s/1024}')
+echo "产物可下载：HTTP ${HTTP_CODE:-?}，${MB} MB，用时 ${TIME_SEC:-?}s（约 ${KBPS} KB/s）"
+if [ "${KBPS:-0}" -lt 100 ]; then
+	echo "⚠️ 下载速度只有约 ${KBPS} KB/s，每次更新可能要等好几分钟；建议按 5.5.5 换源。" >&2
+fi
+echo "版本检查：$(curl -fsSL --connect-timeout 10 --max-time 30 "$BASE/version.json" 2>/dev/null || echo '(取不到，脚本会退回 git ls-remote)')"
 
 echo "== 3/6 下载拉取脚本与 systemd 单元 =="
 TMP_DIR="$(mktemp -d)"
@@ -71,7 +82,11 @@ echo "== 4/6 写入配置（$ENV_FILE）=="
 cat >"$ENV_FILE" <<EOF
 # 服务器侧拉取部署的配置（改完执行：systemctl restart site-pull.timer 或等下一轮）
 SITE_REPO=$REPO
+SITE_BRANCH=${SITE_BRANCH:-site-dist}
 SITE_TAG=$TAG
+# 主源：codeload 的分支归档（国内实测比 Release 附件快 500 倍）
+SITE_ARCHIVE_URL=${SITE_ARCHIVE_URL:-https://codeload.github.com/$REPO/tar.gz/refs/heads/${SITE_BRANCH:-site-dist}}
+# 备用源：Release 附件（主源失败时自动退回）
 SITE_BASE_URL=$BASE
 SITE_WEB_ROOT=$WEB_ROOT
 SITE_WEB_USER=$WEB_USER

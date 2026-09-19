@@ -86,7 +86,26 @@ jobs:
             "$SITE_URL" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" > version.json
           cat version.json
 
-      - name: 发布到滚动 Release（site-latest）
+      - name: 发布产物分支 site-dist（服务器侧拉取的主源）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # version.json 一并放进产物，服务器解包后即可拿到构建信息
+          cp version.json dist/version.json
+          cd dist
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "site: ${GITHUB_SHA:0:7} $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          # 每次都是全新单提交（orphan）+ 强制推送，分支历史不会膨胀
+          git push -q --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            HEAD:site-dist
+          echo "已推送 site-dist：$(git rev-parse --short HEAD)"
+
+      - name: 发布到滚动 Release（site-latest，备用源 + 安装脚本）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

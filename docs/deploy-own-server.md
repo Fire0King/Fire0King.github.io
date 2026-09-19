@@ -424,40 +424,54 @@ GitHub 仓库 → Settings → Secrets and variables → Actions → New reposit
 ```
 你 push / 采集机器人提交数据
         ↓
-GitHub Actions：pnpm build → 打包 site.tar.gz → 发布到 Release（tag: site-latest）
+GitHub Actions：pnpm build → 产物推到 site-dist 分支（同一份再发个 Release 作备用）
         ↓（服务器主动下载，出站 HTTPS，不需要任何入站端口）
-systemd timer（每 2 分钟）→ 有新版本才下载 → 解包校验 → rsync 到站点根目录
+systemd timer（每 2 分钟）→ git ls-remote 比版本号 → 变了才拉 codeload 归档
+                        → 解包校验 → rsync 到站点根目录
 ```
 
 好处：服务器上不再出现任何"外部 IP 登录"；CI 手里不再持有服务器私钥。
 代价：不是秒级发布，最坏要等 2 分钟（频率可调，见 5.5.7）。
 
+**为什么不用 Release 附件当主源**（2026-09-19 在 `118.31.184.73` 上实测）：
+
+| 下载通道 | 实测速度 | 8.4 MB 产物 |
+| --- | --- | --- |
+| Release 附件（`release-assets.githubusercontent.com`，Fastly） | **13–20 KB/s** | 约 7 分钟，还会中途超时 |
+| **`codeload.github.com` 分支归档** | **约 10 MB/s** | 约 1 秒 |
+| `raw.githubusercontent.com` | 约 4 KB/s | — |
+| jsDelivr | 约 0.6 KB/s | — |
+
+同一条线路差了 500 倍，所以默认走 codeload 的分支归档；Release 只作为备用源保留
+（`SITE_ARCHIVE_URL` 可指向任意地址，比如 OSS，见 5.5.5）。
+
 新增的文件：
 
 | 文件 | 作用 |
 | --- | --- |
-| `.github/workflows/publish-site.yml` | 构建 → 打包 → 发布滚动 Release（每次构建覆盖上传附件） |
-| `deploy/server/pull-site.sh` | 服务器侧拉取脚本（比对版本 → 下载 → 校验 → 同步 → 清理旧版本） |
+| `.github/workflows/publish-site.yml` | 构建 → 推 `site-dist` 分支 + 发滚动 Release（安装脚本） |
+| `deploy/server/pull-site.sh` | 服务器侧拉取脚本（比版本 → 下载 → 校验 → 同步 → 清理旧版本） |
 | `deploy/server/site-pull.service`、`deploy/server/site-pull.timer` | systemd 单元（每 2 分钟检查一次） |
 | `deploy/server/install.sh` | 一键安装脚本 |
 
 #### 5.5.1 三个前提（30 秒确认）
 
 ```bash
-# ① 关键测试：能不能下载 Release 附件 —— 这才是侧拉取的前提
-#    ⚠️ 附件会 302 跳转到 GitHub 的 CDN 主机 release-assets.githubusercontent.com，
-#       所以"能打开 github.com"不代表附件能下载，必须测这一条。
-curl -fsSI -o /dev/null -w 'HTTP %{http_code}  用时 %{time_total}s\n' \
-  https://github.com/Fire0King/Fire0King.github.io/releases/download/site-latest/version.json
-#    期望：HTTP 200，用时几秒内。
-#    卡住 / HTTP 000 / 502 / 报 Could not resolve host: release-assets.githubusercontent.com
-#    → 说明附件 CDN 在这条线路上不通，直接看 5.5.5 换下载源
+# ① 关键测试：能不能下载【构建产物归档】—— 这才是侧拉取的前提
+#    ⚠️ 两个坑：
+#       a) 要测产物归档这条通道，"能打开 github.com"不代表能下载；
+#       b) 必须带 -L 跟随 302，否则 -I 只拿到跳转空页，看着成功其实什么都没下到。
+curl -fsSL -o /dev/null \
+  -w 'codeload 归档: HTTP %{http_code}  %{size_download}B  %{time_total}s  %{speed_download}B/s\n' \
+  "https://codeload.github.com/Fire0King/Fire0King.github.io/tar.gz/refs/heads/site-dist"
+#    期望：HTTP 200、8~9 MB、1~3 秒。
+#    如果只有几十 KB/s、或超时/000 → 说明这条线路不通，见 5.5.5 换源
 
 # ② 站点根目录存在（沿用现在的目录即可）
 ls -ld /var/www/myqian-bao.top
 
-# ③ 产物已经发布过：能打开这个页面说明发布工作流跑过了
-#    https://github.com/Fire0King/Fire0King.github.io/releases/tag/site-latest
+# ③ 确认版本号能取到（服务器用 git ls-remote 判断要不要更新）
+git ls-remote https://github.com/Fire0King/Fire0King.github.io refs/heads/site-dist
 ```
 
 #### 5.5.2 一键安装（复制粘贴两条命令）
@@ -514,40 +528,43 @@ ls -1dt /var/lib/site-pull/releases/*/            # 最新的在最上面
 rsync -a --delete /var/lib/site-pull/releases/<要回滚的提交号>/ /var/www/myqian-bao.top/
 ```
 
-#### 5.5.5 服务器访问不了 GitHub 附件（国内机房常见）
+#### 5.5.5 下载不通或太慢怎么办（国内机房常见）
 
-先确认到底是"解析不了"还是"连不上"（Release 附件挂在 GitHub 的 CDN 上）：
+默认主源是 `codeload.github.com`（见 5.5 的实测表），本机实测约 10 MB/s，一般不用管。
+如果换到别的机房、或这条线路也不通，按下面顺序排查：
 
 ```bash
-getent hosts github.com
-getent hosts release-assets.githubusercontent.com    # 附件实际所在主机
-curl -vI https://github.com/Fire0King/Fire0King.github.io/releases/download/site-latest/version.json 2>&1 | tail -n 8
+getent hosts codeload.github.com          # 主源主机
+getent hosts github.com                   # 版本比对用（git ls-remote 走这里）
+curl -vI "https://codeload.github.com/Fire0King/Fire0King.github.io/tar.gz/refs/heads/site-dist" 2>&1 | tail -n 8
 ```
 
-典型的三种结果：
-
-| 现象 | 含义 |
+| 现象 | 含义 / 处理 |
 | --- | --- |
-| 解析不出来（无输出） | DNS 问题：换 `223.5.5.5` 或写进 `/etc/hosts`（用 `getent hosts` 从能上网的机器查到的真实 IP） |
-| 解析出来但连接超时 / `HTTP 000` | 该 IP 段被限速或阻断（`185.199.x.x` 是国内最常见的这类情况） |
-| HTTP 502 / 下载中途断 | 中间链路不稳，脚本本身有 `--retry 3`，但经常失败就换源 |
+| 解析不出来（无输出） | DNS 问题：换 `223.5.5.5`，或把真实 IP 写进 `/etc/hosts` |
+| 解析出来但超时 / `HTTP 000` | 该线路被限速或阻断 → 换源（见下） |
+| 能下但只有几十 KB/s | 同上；脚本有 `--retry 3`，但每次更新都要等好几分钟，建议换源 |
+| 版本号取不到 | 脚本会退回用 Release 里的 `version.json`；两条都不通才会报错（提示看本节） |
 
-换源最省事的是**阿里云 OSS**（和 ECS 同地域，走内网地址还免流量费）：
+**换源：把 `SITE_ARCHIVE_URL` 指到别处即可**，脚本不需要改。三种常见选择：
 
-1. 控制台建一个 Bucket（地域选**华东1 杭州**，权限私有即可），比如 `myqian-bao-site`
-2. CI 里加一步把 `site.tar.gz`、`version.json` 传到 OSS（用 `ossutil` 或 `actions/aliyun-oss`），
-   并用 GitHub Secrets 存 AccessKey
-3. 服务器上改下载前缀并重启定时器：
+1. **阿里云 OSS**（和 ECS 同地域，走内网地址免流量费，最稳）
+   建一个 Bucket（地域选**华东1 杭州**），CI 里加一步把产物传上去，然后：
 
 ```bash
 sudo nano /etc/default/site-pull
-#   SITE_BASE_URL=https://myqian-bao-site.oss-cn-hangzhou.aliyuncs.com/site
+#   SITE_ARCHIVE_URL=https://<bucket>-internal.oss-cn-hangzhou.aliyuncs.com/site/site-dist.tar.gz
+#   SITE_BASE_URL=https://<bucket>-internal.oss-cn-hangzhou.aliyuncs.com/site
 sudo systemctl restart site-pull.timer
 sudo /usr/local/bin/site-pull.sh      # 立刻验证一次
 ```
 
-> 私有 Bucket 需要签名 URL：可以给服务器配一个只读 RAM 子账号，或用 OSS 的"公共读"Bucket
-> （产物本身就是要公开访问的静态文件，公共读并不额外泄露什么）。
+2. **继续用 Release 附件**（如果某天 Fastly 通了）：把 `SITE_ARCHIVE_URL` 指向
+   `https://github.com/Fire0King/Fire0King.github.io/releases/download/site-latest/site.tar.gz`
+3. **Gitee 等国内代码托管做镜像**：把产物同步推一份到国内仓库，用它的归档地址。
+
+> 私有 Bucket 需要签名 URL：可以给服务器配一个只读 RAM 子账号，或用"公共读"Bucket
+> （产物本身就是公开的静态文件，公共读不额外泄露什么）。
 
 - ⚠️ **不要**用公共的"GitHub 加速/代理"站点做部署链路：产物会经过第三方，静态站被注入一段 JS 就会影响所有访客。
 
@@ -573,13 +590,15 @@ sudo /usr/local/bin/site-pull.sh      # 立刻验证一次
 
 | 现象 | 原因 / 处理 |
 | --- | --- |
-| 安装时报 `404` | `publish-site.yml` 还没成功跑过，Release 未生成 → 去 Actions 看那次运行为什么失败 |
-| 日志 `拉取 version.json 失败` | 服务器下载不了 Release 附件（见 5.5.5 的三种现象），或 Release 被人删了 |
+| 安装时报 `404` | `publish-site.yml` 还没成功跑过（`site-dist` 分支 / Release 都没生成）→ 去 Actions 看那次运行为什么失败 |
+| 日志 `下载失败` / `都下载失败` | 主源 codeload 与备用源 Release 都不通 → 见 5.5.5 换源 |
+| 日志 `取不到远端版本号` | `git ls-remote` 与 Release `version.json` 都不通 → 见 5.5.5 |
 | 日志 `缺少命令 flock` | `apt install -y util-linux`（install.sh 会自动装） |
 | 日志说发布完成，但页面没变 | ① `curl -I http://127.0.0.1/` 确认服务器文件确实变了；② 浏览器强刷 Ctrl+F5；③ `nginx -T \| grep root` 确认 nginx 的 `root` 就是 `SITE_WEB_ROOT` |
 | 页面 403 | 属主不对：`SITE_WEB_USER` 要与 nginx 运行用户一致（Ubuntu 是 `www-data`） |
 | 想改成 5 分钟检查一次 | `sudo systemctl edit site-pull.timer` → 写 `[Timer]` 和 `OnUnitActiveSec=5min` → `systemctl daemon-reload && systemctl restart site-pull.timer` |
 | 服务器上残留了旧文件没被删 | 脚本保留了 `.user.ini`（宝塔用）和 `.well-known`（ACME 用），属预期行为 |
+| 网站上不该出现 `version.json` | 脚本已用 `--exclude` 排除；若手动同步过，删掉 `/var/www/myqian-bao.top/version.json` 即可 |
 | 磁盘被历史版本占满 | `SITE_KEEP` 默认保留 3 个版本，可在 `/etc/default/site-pull` 调小 |
 
 ## 6. Nginx 配置（分两个阶段，别一次写完）
