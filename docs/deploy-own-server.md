@@ -444,8 +444,14 @@ systemd timer（每 2 分钟）→ 有新版本才下载 → 解包校验 → rs
 #### 5.5.1 三个前提（30 秒确认）
 
 ```bash
-# ① 服务器能访问 GitHub —— 侧拉取的前提
-curl -fsI https://github.com | head -n1        # 期望看到 HTTP/2 200 之类
+# ① 关键测试：能不能下载 Release 附件 —— 这才是侧拉取的前提
+#    ⚠️ 附件会 302 跳转到 GitHub 的 CDN 主机 release-assets.githubusercontent.com，
+#       所以"能打开 github.com"不代表附件能下载，必须测这一条。
+curl -fsSI -o /dev/null -w 'HTTP %{http_code}  用时 %{time_total}s\n' \
+  https://github.com/Fire0King/Fire0King.github.io/releases/download/site-latest/version.json
+#    期望：HTTP 200，用时几秒内。
+#    卡住 / HTTP 000 / 502 / 报 Could not resolve host: release-assets.githubusercontent.com
+#    → 说明附件 CDN 在这条线路上不通，直接看 5.5.5 换下载源
 
 # ② 站点根目录存在（沿用现在的目录即可）
 ls -ld /var/www/myqian-bao.top
@@ -508,22 +514,40 @@ ls -1dt /var/lib/site-pull/releases/*/            # 最新的在最上面
 rsync -a --delete /var/lib/site-pull/releases/<要回滚的提交号>/ /var/www/myqian-bao.top/
 ```
 
-#### 5.5.5 服务器访问不了 GitHub（国内机房常见）
+#### 5.5.5 服务器访问不了 GitHub 附件（国内机房常见）
+
+先确认到底是"解析不了"还是"连不上"（Release 附件挂在 GitHub 的 CDN 上）：
 
 ```bash
-getent hosts github.com                  # 有没有解析结果
-curl -vI https://github.com 2>&1 | tail -n 5
+getent hosts github.com
+getent hosts release-assets.githubusercontent.com    # 附件实际所在主机
+curl -vI https://github.com/Fire0King/Fire0King.github.io/releases/download/site-latest/version.json 2>&1 | tail -n 8
 ```
 
-- 只是**慢**：不用管，脚本自带 `--retry 3` 和最长 10 分钟超时。
-- 完全**不通**：换个下载源即可，脚本支持 `SITE_BASE_URL` 指向任意前缀。最省事的是阿里云 OSS
-  （与 ECS 同地域，走内网地址还免流量费）：CI 里加一步把 `site.tar.gz`、`version.json` 传到 OSS，然后
+典型的三种结果：
+
+| 现象 | 含义 |
+| --- | --- |
+| 解析不出来（无输出） | DNS 问题：换 `223.5.5.5` 或写进 `/etc/hosts`（用 `getent hosts` 从能上网的机器查到的真实 IP） |
+| 解析出来但连接超时 / `HTTP 000` | 该 IP 段被限速或阻断（`185.199.x.x` 是国内最常见的这类情况） |
+| HTTP 502 / 下载中途断 | 中间链路不稳，脚本本身有 `--retry 3`，但经常失败就换源 |
+
+换源最省事的是**阿里云 OSS**（和 ECS 同地域，走内网地址还免流量费）：
+
+1. 控制台建一个 Bucket（地域选**华东1 杭州**，权限私有即可），比如 `myqian-bao-site`
+2. CI 里加一步把 `site.tar.gz`、`version.json` 传到 OSS（用 `ossutil` 或 `actions/aliyun-oss`），
+   并用 GitHub Secrets 存 AccessKey
+3. 服务器上改下载前缀并重启定时器：
 
 ```bash
 sudo nano /etc/default/site-pull
-#   SITE_BASE_URL=https://<你的bucket>.oss-cn-hangzhou-internal.aliyuncs.com/site
+#   SITE_BASE_URL=https://myqian-bao-site.oss-cn-hangzhou.aliyuncs.com/site
 sudo systemctl restart site-pull.timer
+sudo /usr/local/bin/site-pull.sh      # 立刻验证一次
 ```
+
+> 私有 Bucket 需要签名 URL：可以给服务器配一个只读 RAM 子账号，或用 OSS 的"公共读"Bucket
+> （产物本身就是要公开访问的静态文件，公共读并不额外泄露什么）。
 
 - ⚠️ **不要**用公共的"GitHub 加速/代理"站点做部署链路：产物会经过第三方，静态站被注入一段 JS 就会影响所有访客。
 
@@ -550,7 +574,7 @@ sudo systemctl restart site-pull.timer
 | 现象 | 原因 / 处理 |
 | --- | --- |
 | 安装时报 `404` | `publish-site.yml` 还没成功跑过，Release 未生成 → 去 Actions 看那次运行为什么失败 |
-| 日志 `拉取 version.json 失败` | 服务器访问不了 GitHub（见 5.5.5），或 Release 被人删了 |
+| 日志 `拉取 version.json 失败` | 服务器下载不了 Release 附件（见 5.5.5 的三种现象），或 Release 被人删了 |
 | 日志 `缺少命令 flock` | `apt install -y util-linux`（install.sh 会自动装） |
 | 日志说发布完成，但页面没变 | ① `curl -I http://127.0.0.1/` 确认服务器文件确实变了；② 浏览器强刷 Ctrl+F5；③ `nginx -T \| grep root` 确认 nginx 的 `root` 就是 `SITE_WEB_ROOT` |
 | 页面 403 | 属主不对：`SITE_WEB_USER` 要与 nginx 运行用户一致（Ubuntu 是 `www-data`） |

@@ -40,14 +40,17 @@ if [ -n "$missing" ]; then
 fi
 echo "依赖 OK：$(curl --version | head -n1)"
 
-echo "== 2/6 验证能访问 GitHub（拉取部署的前提）=="
-if ! curl -fsI --connect-timeout 10 --max-time 20 https://github.com >/dev/null; then
-	echo "❌ 服务器访问不了 github.com。这属于网络问题，不是脚本问题：" >&2
-	echo "   · 先确认 DNS：getent hosts github.com" >&2
-	echo "   · 若确实不通，改用文档 5.5.5 节的 OSS 中转方案（SITE_BASE_URL 也可以直接指向别处）" >&2
+echo "== 2/6 验证能下载 Release 附件（侧拉取的前提）=="
+# 注意：要测的是【附件地址】，不是 github.com —— 附件会跳转到 GitHub 的 CDN 主机
+# release-assets.githubusercontent.com，国内部分网络只对它有影响。
+if ! curl -fsSI -o /dev/null --connect-timeout 10 --max-time 30 "$BASE/version.json"; then
+	echo "❌ 下载不了 $BASE/version.json。常见原因与处理：" >&2
+	echo "   · DNS：getent hosts github.com / release-assets.githubusercontent.com" >&2
+	echo "   · 只测试 github.com 能通不代表附件能通，请以上面这条命令为准" >&2
+	echo "   · 确实不通时改用文档 5.5.5 节的 OSS 中转（把 SITE_BASE_URL 指过去即可）" >&2
 	exit 1
 fi
-echo "GitHub 可达"
+echo "附件可下载：$(curl -fsS --connect-timeout 10 --max-time 30 "$BASE/version.json")"
 
 echo "== 3/6 下载拉取脚本与 systemd 单元 =="
 TMP_DIR="$(mktemp -d)"
