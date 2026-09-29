@@ -17,7 +17,7 @@
 	},
 	"collector": {
 		"intervalMinutes": 10,
-		"followerSnapshotIntervalHours": 12,
+		"followerSnapshotIntervalHours": 1,
 		"titleUpdateIntervalMinutes": 30,
 		"retentionDays": 0
 	},

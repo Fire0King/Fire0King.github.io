@@ -1,0 +1,12 @@
+[Unit]
+Description=派发 GitHub Actions 采集工作流（补 GitHub cron 的不准时）
+Documentation=file:///usr/local/bin/live-data-dispatch.sh
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/live-data-dispatch
+ExecStart=/usr/local/bin/live-data-dispatch.sh
+Nice=10
+TimeoutStartSec=2min

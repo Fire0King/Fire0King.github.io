@@ -130,5 +130,9 @@ jobs:
             deploy/server/install.sh \
             deploy/server/site-pull.service \
             deploy/server/site-pull.timer \
+            deploy/server/live-data-dispatch.sh \
+            deploy/server/live-data-dispatch.service \
+            deploy/server/live-data-dispatch.timer \
+            deploy/server/install-dispatch.sh \
             --clobber
           echo "附件地址：https://github.com/${{ github.repository }}/releases/download/site-latest/site.tar.gz"

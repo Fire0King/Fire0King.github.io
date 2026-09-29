@@ -601,6 +601,95 @@ sudo /usr/local/bin/site-pull.sh      # 立刻验证一次
 | 网站上不该出现 `version.json` | 脚本已用 `--exclude` 排除；若手动同步过，删掉 `/var/www/myqian-bao.top/version.json` 即可 |
 | 磁盘被历史版本占满 | `SITE_KEEP` 默认保留 3 个版本，可在 `/etc/default/site-pull` 调小 |
 
+### 5.6 让采集稳定在 10 分钟一次（补 GitHub cron 的不准时）
+
+**现象**：页面上的"数据更新于 …"长期不动；开播后要很久才在页面上看到"正在直播"。
+
+**实测原因**（在 `118.31.184.73` 上查到的真实数据）：采集工作流每次都是 `success`、单次只要 15~31 秒，
+但**触发频率**远低于配置的 `*/10`：
+
+| 日期 | 实际运行时刻（UTC） | 与上一次间隔 |
+| --- | --- | --- |
+| 09-29 | 06:48 | 342 min |
+| 09-29 | 01:06 | 220 min |
+| 09-28 | 21:26 | 335 min |
+| 09-28 | 15:51 | 500 min |
+
+也就是 **4~6 次/天**，而配置期望的是 144 次/天。这是 GitHub 的已知行为：`schedule` 只是"尽力而为"，
+低活跃仓库会被严重降频；而 `workflow_dispatch` 是立即执行的（我们前面每次手动派发都是秒级跑起来）。
+
+**做法**：让服务器每 10 分钟调一次 GitHub API 派发采集工作流，GitHub 上原有的 cron 保留作兜底。
+
+```
+服务器 systemd timer（每 10 分钟）
+        ↓ POST /repos/…/actions/workflows/live-data.yml/dispatches
+GitHub Actions 采集 → 有变化才提交 → 自动派发 publish-site（见 5.5）
+        ↓
+服务器 site-pull.timer（每 2 分钟）拉取产物 → 页面更新
+```
+
+#### 5.6.1 安装（两条命令）
+
+```bash
+curl -fsSL https://github.com/Fire0King/Fire0King.github.io/releases/download/site-latest/install-dispatch.sh -o /tmp/dispatch-install.sh
+sudo bash /tmp/dispatch-install.sh
+```
+
+装完会提示还差一个令牌（见下）。安装内容：`/usr/local/bin/live-data-dispatch.sh`、
+`/etc/systemd/system/live-data-dispatch.{service,timer}`、配置 `/etc/default/live-data-dispatch`。
+
+#### 5.6.2 放一个最小权限的令牌
+
+1. 打开 <https://github.com/settings/personal-access-tokens/new>（Fine-grained token）
+   - **Repository access** → Only select repositories → `Fire0King/Fire0King.github.io`
+   - **Permissions** → Repository permissions → **Actions → Read and write**（其他都不用给）
+   - Expiration 建议 90 天以上，到期前记得换
+2. 把令牌存到服务器（不回显、不经过第三方）：
+
+```bash
+sudo sh -c 'read -rsp "粘贴令牌后回车: " t; printf "%s" "$t" > /etc/live-data-dispatch/token; chmod 600 /etc/live-data-dispatch/token; echo; echo 已保存'
+```
+
+3. 验证：
+
+```bash
+sudo /usr/local/bin/live-data-dispatch.sh          # 期望：✅ 已派发 live-data.yml（ref=main）
+journalctl -u live-data-dispatch.service -n 5 --no-pager
+```
+
+#### 5.6.3 验证频率真的恢复了
+
+```bash
+# 在服务器上什么都不用做，等几十分钟后看 GitHub 上的运行记录：
+#   仓库 → Actions → Live data collector：应变成每 10 分钟一条、event = workflow_dispatch
+```
+
+#### 5.6.4 排错
+
+| 现象 | 处理 |
+| --- | --- |
+| 日志 `⚠ 还没配置令牌` | 按 5.6.2 放令牌；没令牌时脚本故意安静退出（退出码 0，不刷错误日志） |
+| 日志 `❌ 令牌无效或权限不足（HTTP 401/403）` | 令牌过期，或没给 Actions 写权限 → 重新生成 |
+| 日志 `❌ 仓库或工作流不存在（HTTP 404）` | `live-data.yml` 文件名/分支写错，改 `/etc/default/live-data-dispatch` |
+| 服务器访问不了 api.github.com | `getent hosts api.github.com`；国内线路偶发不通时段会自动重试（每 10 分钟一次） |
+| 想改成 5 分钟一次 | `sudo systemctl edit live-data-dispatch.timer` → `[Timer]` + `OnUnitActiveSec=5min` |
+| 想临时停掉 | `sudo systemctl disable --now live-data-dispatch.timer`（GitHub 自带的 cron 仍在） |
+
+#### 5.6.5 关于"数据更新于"这个时间
+
+页面上那行小字取的是数据文件里的 `updatedAt`，而采集脚本**只在数据真的变化时才写文件**
+（脚本里明确写着：直播状态无变化就不改 `streams.json`）。所以安静时段这行字本来就不会跳。
+
+真正影响体验的是这两项配置（`src/config/live-report.config.json` 的 `collector`）：
+
+| 字段 | 含义 | 当前值 |
+| --- | --- | --- |
+| `followerSnapshotIntervalHours` | 粉丝数最多多久快照一次（代码里**下限是 1 小时**，数值没变也不会写） | `1` |
+| `titleUpdateIntervalMinutes` | 直播中标题/时长多久刷新一次 | `30` |
+
+想更"勤快"就把 `followerSnapshotIntervalHours` 再调大/调小，但每次写入都会触发一次提交 + 重建，
+调太小会让提交与构建次数明显变多。
+
 ## 6. Nginx 配置（分两个阶段，别一次写完）
 
 ### 阶段一：先用 HTTP 跑通（备案审核期间用 IP 验证）
