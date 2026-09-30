@@ -647,8 +647,13 @@ sudo bash /tmp/dispatch-install.sh
 2. 把令牌存到服务器（不回显、不经过第三方）：
 
 ```bash
-sudo sh -c 'read -rsp "粘贴令牌后回车: " t; printf "%s" "$t" > /etc/live-data-dispatch/token; chmod 600 /etc/live-data-dispatch/token; echo; echo 已保存'
+# 注意用 bash：Ubuntu 的 /bin/sh 是 dash，它的 read 不支持 -s（静默输入）
+bash -c 'read -rsp "粘贴令牌后回车: " t; printf "%s" "$t" > /etc/live-data-dispatch/token; chmod 600 /etc/live-data-dispatch/token; echo; echo 已保存'
 ```
+
+> 若上一条报 `read: Illegal option -s`，或你想手工来，也可以用编辑器：
+> `install -d -m 700 /etc/live-data-dispatch && nano /etc/live-data-dispatch/token`
+> （文件里只放令牌本身，不要引号/空格/Bearer 前缀），存好后 `chmod 600 /etc/live-data-dispatch/token`。
 
 3. 验证：
 

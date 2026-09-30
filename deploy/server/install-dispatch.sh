@@ -78,8 +78,12 @@ else
       · Permissions → Repository permissions → 找到 Actions → 设为 Read and write
       · 生成后复制那串 github_pat_… （只显示一次）
    2. 在服务器上执行下面这行，把令牌粘进去（不会回显、不经过任何第三方）：
+      （必须用 bash：Ubuntu 的 /bin/sh 是 dash，read 不支持 -s）
 
-      sudo sh -c 'read -rsp "粘贴令牌后回车: " t; printf "%s" "\$t" > $TOKEN_DIR/token; chmod 600 $TOKEN_DIR/token; echo; echo 已保存'
+      bash -c 'read -rsp "粘贴令牌后回车: " t; printf "%s" "\$t" > $TOKEN_DIR/token; chmod 600 $TOKEN_DIR/token; echo; echo 已保存'
+
+      报 "read: Illegal option -s" 的话改用编辑器：
+      install -d -m 700 $TOKEN_DIR && nano $TOKEN_DIR/token && chmod 600 $TOKEN_DIR/token
 
    3. 验证（应输出 "✅ 已派发 live-data.yml"）：
 
