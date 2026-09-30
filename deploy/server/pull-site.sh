@@ -127,8 +127,11 @@ if [ "${SITE_DRY_RUN:-0}" = "1" ]; then
 fi
 
 mkdir -p "$WEB_ROOT"
+# 注意 api/live-status.json：那是服务器上的实时状态轮询器（live-status-poller）写的，
+# 不在构建产物里，必须排除，否则每次 --delete 都会被删掉
 rsync -a --delete --chown="$WEB_USER:$WEB_USER" \
 	--exclude='.user.ini' --exclude='.well-known' --exclude='version.json' \
+	--exclude='api/live-status.json' \
 	"$REL_DIR/" "$WEB_ROOT/"
 log "已同步到 $WEB_ROOT（属主 $WEB_USER）"
 

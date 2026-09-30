@@ -1,0 +1,12 @@
+[Unit]
+Description=轮询 B 站直播间状态并输出实时 JSON（直播页实时状态用）
+Documentation=file:///usr/local/bin/live-status-poller.sh
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/live-status-poller
+ExecStart=/usr/local/bin/live-status-poller.sh
+Nice=15
+TimeoutStartSec=60s

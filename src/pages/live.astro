@@ -2,6 +2,7 @@
 import { Icon } from "astro-icon/components";
 import LiveHero from "@/components/pages/live/LiveHero.astro";
 import LiveReport from "@/components/pages/live/LiveReport.svelte";
+import LiveStatus from "@/components/pages/live/LiveStatus.svelte";
 import {
 	enabledLivePlatforms,
 	isLiveReportConfigured,
@@ -110,6 +111,9 @@ const heroEnabled = liveReportConfig.hero.enable;
 							{i18n(I18nKey.liveReportNoDataDesc)}
 						</div>
 					)}
+					<!-- 实时状态：数据来自服务器上的 live-status-poller（每 30 秒轮询 B 站），
+					     取不到时整块不渲染，页面表现与之前一致 -->
+					<LiveStatus client:load timezone={timezone} />
 					<LiveReport
 						client:load
 						records={streams.records}

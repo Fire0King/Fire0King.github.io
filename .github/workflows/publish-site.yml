@@ -134,5 +134,9 @@ jobs:
             deploy/server/live-data-dispatch.service \
             deploy/server/live-data-dispatch.timer \
             deploy/server/install-dispatch.sh \
+            deploy/server/live-status-poller.sh \
+            deploy/server/live-status-poller.service \
+            deploy/server/live-status-poller.timer \
+            deploy/server/install-poller.sh \
             --clobber
           echo "附件地址：https://github.com/${{ github.repository }}/releases/download/site-latest/site.tar.gz"

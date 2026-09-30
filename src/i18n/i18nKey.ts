@@ -309,6 +309,9 @@ enum I18nKey {
 	liveReportNoStreamThisDay = "liveReportNoStreamThisDay",
 	liveReportDataRange = "liveReportDataRange",
 	liveReportAutoCollected = "liveReportAutoCollected",
+	liveStatusTitle = "liveStatusTitle",
+	liveStatusOffline = "liveStatusOffline",
+	liveStatusViewers = "liveStatusViewers",
 
 	// MyAnimeList
 	mal = "mal",

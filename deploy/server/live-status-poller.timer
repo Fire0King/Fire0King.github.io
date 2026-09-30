@@ -1,0 +1,13 @@
+[Unit]
+Description=每 30 秒轮询一次 B 站直播状态
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=5s
+RandomizedDelaySec=3
+# 只关心"此刻"，错过的不用补跑
+Persistent=false
+
+[Install]
+WantedBy=timers.target

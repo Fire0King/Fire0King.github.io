@@ -690,6 +690,80 @@ journalctl -u live-data-dispatch.service -n 5 --no-pager
 想更"勤快"就把 `followerSnapshotIntervalHours` 再调大/调小，但每次写入都会触发一次提交 + 重建，
 调太小会让提交与构建次数明显变多。
 
+### 5.7 实时直播状态（服务器轮询 → 页面直读）
+
+**为什么还要这个**：5.6 解决的是"采集多久跑一次"，但采集再快，页面也要等一轮
+「提交 → 构建 → 服务器拉取」才更新（端到端几分钟），而且 GitHub 侧一旦抽风就全停。
+真正的「此刻是否在播」不该依赖 GitHub —— 由服务器直接轮询 B 站接口、写一个同源 JSON，
+页面每 20 秒取一次即可。
+
+```
+B站直播间接口（api.live.bilibili.com/room/v1/Room/get_info）
+        ↑ 每 30 秒
+服务器 live-status-poller（bash + curl + systemd timer）
+        ↓ 原子写入
+/var/www/myqian-bao.top/api/live-status.json     ← 与站点同源，无 CORS 问题
+        ↓ 页面每 20 秒 fetch（取不到就不渲染）
+直播页顶部「实时状态」卡片：直播中/未开播 · 当前人气 · 当前粉丝 · 开播时间
+```
+
+> 参考实现对比：laplace.live 走的是**常驻 WebSocket**（`wss://broadcastlv.chat.bilibili.com/sub`
+> + event-bridge 推给前端），开播/下播是秒级；我们只要"状态够新"，30 秒轮询就够，
+> 不必引入长连接与事件桥（那是弹幕墙级别才需要的）。
+
+#### 5.7.1 安装（两条命令）
+
+```bash
+curl -fsSL https://github.com/Fire0King/Fire0King.github.io/releases/download/site-latest/install-poller.sh -o /tmp/poller-install.sh
+sudo bash /tmp/poller-install.sh
+```
+
+安装内容：`/usr/local/bin/live-status-poller.sh`、
+`/etc/systemd/system/live-status-poller.{service,timer}`（每 30 秒）、配置 `/etc/default/live-status-poller`。
+
+#### 5.7.2 接口契约（`/api/live-status.json`）
+
+```json
+{
+  "updatedAt": "2026-09-30T19:05:12+08:00",
+  "source": "server-poller",
+  "roomId": "1750753391",
+  "roomUrl": "https://live.bilibili.com/1750753391",
+  "bilibili": {
+    "live": false,
+    "status": 0,
+    "title": "新手玩饥荒",
+    "online": 0,
+    "followers": 71984,
+    "startedAt": "0000-00-00 00:00:00",
+    "area": "饥荒"
+  }
+}
+```
+
+`status`：0=未开播、1=直播中、2=轮播（沿用 B 站的取值）。
+
+#### 5.7.3 与拉取部署的关系（重要）
+
+这个 JSON **不在构建产物里**，是服务器自己写的，所以已经加进 `pull-site.sh` 的 rsync 排除列表：
+
+```
+--exclude='api/live-status.json'
+```
+
+否则每次 `--delete` 同步都会把它删掉。若你手动覆盖过站点，确认这个文件还在。
+
+#### 5.7.4 排错
+
+| 现象 | 处理 |
+| --- | --- |
+| 页面上看不到「实时状态」卡片 | ① `sudo /usr/local/bin/live-status-poller.sh` 手动跑一次看报错；② `curl -I http://127.0.0.1/api/live-status.json` 应 200；③ 页面是 fetch 加载的，浏览器控制台看有没有 404 |
+| 日志 `❌ 拉取直播间信息失败` | 服务器到 B 站不通或接口变了；手动测：`curl -H "Referer: https://live.bilibili.com/" "https://api.live.bilibili.com/room/v1/Room/get_info?room_id=1750753391"` |
+| 接口返回 403 | **不要带外站 `Origin` 头**（会被拒爬），只带 `User-Agent` + `Referer` |
+| 卡片一直显示上一次的数据 | 轮询器挂了：`systemctl status live-status-poller.timer`、`journalctl -u live-status-poller.service -n 30` |
+| 想改成 10 秒一次 | `sudo systemctl edit live-status-poller.timer` → `[Timer]` + `OnUnitActiveSec=10s` → `systemctl daemon-reload && systemctl restart live-status-poller.timer` |
+| 抖音为什么没有实时 | 抖音接口需要 Cookie 与额外签名，脚本里只做了 B 站；抖音侧仍由 5.6 的采集器负责（每 10 分钟） |
+
 ## 6. Nginx 配置（分两个阶段，别一次写完）
 
 ### 阶段一：先用 HTTP 跑通（备案审核期间用 IP 验证）
