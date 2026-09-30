@@ -1,8 +1,18 @@
 {
-	"version": 1,
-	"updatedAt": null,
-	"timezone": "Asia/Shanghai",
-	"intervalMinutes": 10,
-	"active": {},
-	"records": []
+  "version": 1,
+  "updatedAt": "2026-09-30T19:48:20+08:00",
+  "timezone": "Asia/Shanghai",
+  "intervalMinutes": 10,
+  "active": {
+    "bilibili": {
+      "platform": "bilibili",
+      "title": "新手玩饥荒",
+      "start": "2026-10-01T03:42:42+08:00",
+      "titleUpdatedAt": "2026-09-30T19:48:20+08:00",
+      "url": "https://live.bilibili.com/1750753391",
+      "roomId": "1750753391",
+      "cover": "https://i0.hdslb.com/bfs/live/new_room_cover/06ad2128138f72d7a960002117bcb47a1ab0391f.jpg"
+    }
+  },
+  "records": []
 }
