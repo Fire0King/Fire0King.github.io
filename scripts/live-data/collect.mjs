@@ -142,6 +142,46 @@ export function parsePlatformTime(value, timeZone) {
 	return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+/**
+ * 直接问 B 站要直播间信息，拿**原始**的 live_time。
+ *
+ * 为什么要绕开 SDK：B 站原始值是北京时间裸串（"2026-09-30 19:42:42"，没有时区），
+ * 一旦在中间被当成 UTC 处理、之后又按 +08:00 显示，开播时间就会整整晚 8 小时 ——
+ * 表现就是"今天的直播显示到明天"且"时长为 0 分钟"（结束时间早于开始时间）。
+ * 这里直接取原始字符串，交给 parsePlatformTime 按配置时区解析，秒级准确。
+ *
+ * 请求要点：带 User-Agent + Referer，**不要**带外站 Origin（带了会被 403 拒爬）。
+ */
+async function fetchBilibiliLiveRoomRaw(roomId, timeZone) {
+	try {
+		const res = await fetch(
+			`https://api.live.bilibili.com/room/v1/Room/get_info?room_id=${encodeURIComponent(String(roomId))}`,
+			{
+				headers: {
+					"User-Agent":
+						"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+					Referer: "https://live.bilibili.com/",
+				},
+			},
+		);
+		if (!res.ok) {
+			warn(`B站直播间接口返回 HTTP ${res.status}（开播时间将退回本次采集时间）`);
+			return null;
+		}
+		const json = await res.json();
+		const data = json?.data ?? {};
+		return {
+			live: toNumber(data.live_status, 0) === 1,
+			title: typeof data.title === "string" ? data.title : undefined,
+			startedAt: parsePlatformTime(data.live_time, timeZone),
+			area: typeof data.area_name === "string" ? data.area_name : undefined,
+		};
+	} catch (error) {
+		warn(`B站直播间接口请求失败：${error?.message ?? error}`);
+		return null;
+	}
+}
+
 /** 在对象里按候选字段名广度优先查找第一个非空值 */
 function deepFind(source, candidateKeys, maxDepth = 6) {
 	if (!source || typeof source !== "object") return undefined;
@@ -270,36 +310,45 @@ async function collectBilibili(client, config) {
 	// 3) 精确开播时间（配置了直播间号才有意义）
 	const roomId = config.roomId || result.roomId;
 	if (result.live && roomId) {
-		try {
-			const raw = await client.bilibili.fetcher.fetchLiveRoomInfo({
-				room_id: String(roomId),
-			});
-			if (DUMP)
-				log(
-					"bilibili.fetchLiveRoomInfo ->",
-					JSON.stringify(raw)?.slice(0, 800),
+		// 3a) 优先直接问原始接口：SDK 返回的字段可能被规范化过（裸时间被当 UTC），
+		//     那会让开播时间差 8 小时，直播被记到第二天、时长为 0
+		const direct = await fetchBilibiliLiveRoomRaw(roomId, config.timezone);
+		if (direct?.startedAt) {
+			result.startedAt = direct.startedAt;
+		} else {
+			// 3b) 兜底：走 SDK（能拿到就先用，reconcile 里还有"不能是未来时间"的校验）
+			try {
+				const raw = await client.bilibili.fetcher.fetchLiveRoomInfo({
+					room_id: String(roomId),
+				});
+				if (DUMP)
+					log(
+						"bilibili.fetchLiveRoomInfo ->",
+						JSON.stringify(raw)?.slice(0, 800),
+					);
+				const body = unwrap(raw, "B站直播间信息");
+				const payload = body?.data ?? body;
+				const liveStatus = toNumber(
+					deepFind(payload, ["live_status", "liveStatus"]),
+					0,
 				);
-			const body = unwrap(raw, "B站直播间信息");
-			const payload = body?.data ?? body;
-			const liveStatus = toNumber(
-				deepFind(payload, ["live_status", "liveStatus"]),
-				0,
-			);
-			// live_status: 0=未开播 1=直播中 2=轮播
-			if (liveStatus === 1) {
-				const startedAt = parsePlatformTime(
-					deepFind(payload, ["live_time"]),
-					config.timezone,
+				// live_status: 0=未开播 1=直播中 2=轮播
+				if (liveStatus === 1) {
+					const startedAt = parsePlatformTime(
+						deepFind(payload, ["live_time"]),
+						config.timezone,
+					);
+					if (startedAt) result.startedAt = startedAt;
+				}
+				result.title = deepFind(payload, ["title"]) || result.title;
+				result.roomId = deepFind(payload, ["room_id"]) || result.roomId;
+			} catch (error) {
+				warn(
+					`B站 直播间信息获取失败（不影响在播判断）：${error?.message ?? error}`,
 				);
-				if (startedAt) result.startedAt = startedAt;
 			}
-			result.title = deepFind(payload, ["title"]) || result.title;
-			result.roomId = deepFind(payload, ["room_id"]) || result.roomId;
-		} catch (error) {
-			warn(
-				`B站 直播间信息获取失败（不影响在播判断）：${error?.message ?? error}`,
-			);
 		}
+		if (!result.title && direct?.title) result.title = direct.title;
 	}
 
 	return result;
@@ -426,7 +475,13 @@ export function reconcile({ streams, snapshots, config, now }) {
 		if (!snapshot.ok) continue;
 
 		if (snapshot.live) {
-			const startedAt = snapshot.startedAt ?? now;
+			// 开播时间必须落在"现在"之前。接口字段一旦被当成 UTC 处理过，就会得到一个
+			// 未来时间（整场直播被记到第二天、时长夹成 0），这种值一律丢弃、退回本次采集时间。
+			const startedAt =
+				snapshot.startedAt instanceof Date &&
+				snapshot.startedAt.getTime() <= now.getTime() + 60 * 1000
+					? snapshot.startedAt
+					: now;
 			if (!current) {
 				active[platform] = {
 					platform,

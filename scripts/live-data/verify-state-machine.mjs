@@ -14,6 +14,7 @@
 
 import {
 	applyRetention,
+	dateKeyOf,
 	emptyFollowers,
 	emptyStreams,
 	isoInTimeZone,
@@ -72,7 +73,39 @@ function baseStreams() {
 	check("开播：标记为有变化", result.changed === true);
 }
 
-// ── 2. 标题节流：间隔内不写，超过间隔才写 ─────────────────────────────────
+// ── 1b. 开播时间在未来（时区被错误规范化）时，必须退回本次采集时间 ─────────
+//     真实事故：B 站 live_time 是北京时间裸串，被当成 UTC 处理后再按 +08:00 显示，
+//     开播时间整整晚 8 小时 —— 直播被记到第二天，时长夹成 0 分钟。
+{
+	const now = new Date("2026-05-01T12:00:00Z"); // 北京时间 20:00
+	const bogus = new Date("2026-05-01T20:00:00Z"); // 被错误处理后的"开播时间"（其实是 8 小时后）
+	const result = reconcile({
+		streams: baseStreams(),
+		snapshots: [
+			{
+				platform: "bilibili",
+				ok: true,
+				live: true,
+				title: "新手玩饥荒",
+				startedAt: bogus,
+			},
+		],
+		config,
+		now,
+	});
+	check(
+		"未来开播时间：退回本次采集时间",
+		result.active.bilibili?.start === isoInTimeZone(now, TIMEZONE),
+		result.active.bilibili?.start,
+	);
+	check(
+		"未来开播时间：日期仍是当天",
+		dateKeyOf(new Date(result.active.bilibili?.start ?? 0), TIMEZONE) === "2026-05-01",
+		result.active.bilibili?.start,
+	);
+}
+
+// ── 3. 标题节流：间隔内不写，超过间隔才写 ─────────────────────────────────
 {
 	const streams = baseStreams();
 	streams.active.bilibili = {
