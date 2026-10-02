@@ -1,9 +1,19 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-30T21:45:47+08:00",
+  "updatedAt": "2026-10-02T19:49:52+08:00",
   "timezone": "Asia/Shanghai",
   "intervalMinutes": 10,
-  "active": {},
+  "active": {
+    "bilibili": {
+      "platform": "bilibili",
+      "title": "喵，今天玩我的世界",
+      "start": "2026-10-03T03:42:12+08:00",
+      "titleUpdatedAt": "2026-10-02T19:49:52+08:00",
+      "url": "https://live.bilibili.com/1750753391",
+      "roomId": "1750753391",
+      "cover": "https://i0.hdslb.com/bfs/live/user_cover/a4f9321cdfe1c5e69e83aad4a57b168d3c64bb58.jpg"
+    }
+  },
   "records": [
     {
       "id": "bilibili-2026-10-01T03:42:42+08:00",
