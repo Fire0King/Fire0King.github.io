@@ -1,23 +1,9 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-17T19:36:07+08:00",
+  "updatedAt": "2026-10-17T20:27:53+08:00",
   "timezone": "Asia/Shanghai",
   "intervalMinutes": 10,
-  "active": {
-    "douyin": {
-      "platform": "douyin",
-      "title": "续个灯牌",
-      "start": "2026-10-17T19:36:07+08:00",
-      "titleUpdatedAt": "2026-10-17T19:36:07+08:00",
-      "url": "https://live.douyin.com/407805461300",
-      "cover": {
-        "url_list": [
-          "https://p11-webcast-sign.douyinpic.com/image-cut-tos-priv/8546d23fc66fd682f7e693e242f33510~tplv-qz53dukwul-common-resize:0:0.image?biz_tag=app_6383_webcast&from=webcast.room.pack&l=2026101719361091EBE8D01BFD8F66747C&lk3s=39e7556e&s=enter_room&sc=webcast_cover&x-expires=1794828971&x-signature=1juQMuGowBlLZ75xSiPKnzXF2t4%3D",
-          "https://p3-webcast-sign.douyinpic.com/image-cut-tos-priv/8546d23fc66fd682f7e693e242f33510~tplv-qz53dukwul-common-resize:0:0.image?biz_tag=app_6383_webcast&from=webcast.room.pack&l=2026101719361091EBE8D01BFD8F66747C&lk3s=39e7556e&s=enter_room&sc=webcast_cover&x-expires=1794828971&x-signature=W%2FVCbyRfhm%2ByUN0SXk1B3pjHsVU%3D"
-        ]
-      }
-    }
-  },
+  "active": {},
   "records": [
     {
       "id": "bilibili-2026-09-30T19:42:42+08:00",
@@ -182,6 +168,22 @@
       "url": "https://live.bilibili.com/1750753391",
       "roomId": "1750753391",
       "cover": "https://i0.hdslb.com/bfs/live/user_cover/a4f9321cdfe1c5e69e83aad4a57b168d3c64bb58.jpg"
+    },
+    {
+      "id": "douyin-2026-10-17T19:36:07+08:00",
+      "platform": "douyin",
+      "title": "续个灯牌",
+      "date": "2026-10-17",
+      "start": "2026-10-17T19:36:07+08:00",
+      "end": "2026-10-17T20:27:53+08:00",
+      "durationSeconds": 3106,
+      "url": "https://live.douyin.com/407805461300",
+      "cover": {
+        "url_list": [
+          "https://p11-webcast-sign.douyinpic.com/image-cut-tos-priv/8546d23fc66fd682f7e693e242f33510~tplv-qz53dukwul-common-resize:0:0.image?biz_tag=app_6383_webcast&from=webcast.room.pack&l=2026101719361091EBE8D01BFD8F66747C&lk3s=39e7556e&s=enter_room&sc=webcast_cover&x-expires=1794828971&x-signature=1juQMuGowBlLZ75xSiPKnzXF2t4%3D",
+          "https://p3-webcast-sign.douyinpic.com/image-cut-tos-priv/8546d23fc66fd682f7e693e242f33510~tplv-qz53dukwul-common-resize:0:0.image?biz_tag=app_6383_webcast&from=webcast.room.pack&l=2026101719361091EBE8D01BFD8F66747C&lk3s=39e7556e&s=enter_room&sc=webcast_cover&x-expires=1794828971&x-signature=W%2FVCbyRfhm%2ByUN0SXk1B3pjHsVU%3D"
+        ]
+      }
     }
   ]
 }
