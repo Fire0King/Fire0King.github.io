@@ -1,9 +1,23 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-18T22:41:37+08:00",
+  "updatedAt": "2026-10-20T20:52:58+08:00",
   "timezone": "Asia/Shanghai",
   "intervalMinutes": 10,
-  "active": {},
+  "active": {
+    "douyin": {
+      "platform": "douyin",
+      "title": "低精力宅女",
+      "start": "2026-10-20T20:52:58+08:00",
+      "titleUpdatedAt": "2026-10-20T20:52:58+08:00",
+      "url": "https://live.douyin.com/407805461300",
+      "cover": {
+        "url_list": [
+          "https://p11-webcast-sign.douyinpic.com/image-cut-tos-priv/f2f7ed58ec83ad9f0dcf66f9b1b74ff2~tplv-qz53dukwul-common-resize:0:0.image?biz_tag=app_6383_webcast&from=webcast.room.pack&l=2026102020530115FC0787BD2EEC94724A&lk3s=39e7556e&s=enter_room&sc=webcast_cover&x-expires=1795092781&x-signature=gNLapvBo1E6TEqXRIqogcNjjBLw%3D",
+          "https://p3-webcast-sign.douyinpic.com/image-cut-tos-priv/f2f7ed58ec83ad9f0dcf66f9b1b74ff2~tplv-qz53dukwul-common-resize:0:0.image?biz_tag=app_6383_webcast&from=webcast.room.pack&l=2026102020530115FC0787BD2EEC94724A&lk3s=39e7556e&s=enter_room&sc=webcast_cover&x-expires=1795092781&x-signature=ynbi2LUUtl1Ak6wcb4E0lIsFZYs%3D"
+        ]
+      }
+    }
+  },
   "records": [
     {
       "id": "bilibili-2026-09-30T19:42:42+08:00",
