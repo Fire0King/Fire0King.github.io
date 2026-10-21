@@ -45,6 +45,9 @@ die() { log "❌ $*"; exit 1; }
 TMP_DIR=""
 cleanup() { [ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR"; }
 trap 'cleanup; die "同步失败（脚本第 $LINENO 行）"' ERR
+# 成功退出也要删掉临时目录（以前只挂了 ERR，导致每 2 分钟漏一个 8M 的 tmp.*，
+# 实测把 40G 的盘堆满过一次：/var/lib/site-pull 下 12037 个目录、24G）
+trap 'cleanup' EXIT
 
 # ① 依赖检查
 for pair in "curl:curl" "tar:tar" "rsync:rsync" "flock:util-linux"; do
@@ -55,6 +58,8 @@ done
 
 # ② 单实例：上一次还没跑完就跳过，避免并发写同一个目录
 mkdir -p "$STATE_DIR"
+# 顺手扫掉历史遗留（旧版本成功退出时不删 tmp.*），只清 10 分钟前的，避免误删正在进行的
+find "$STATE_DIR" -maxdepth 1 -name 'tmp.*' -mmin +10 -exec rm -rf {} + 2>/dev/null || true
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
 	log "上一次同步还在进行，本次跳过"
