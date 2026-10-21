@@ -29,7 +29,11 @@ WEB_ROOT="${SITE_WEB_ROOT:-/var/www/myqian-bao.top}"
 WEB_USER="${SITE_WEB_USER:-www-data}"
 ROOM_ID="${LIVE_TIMER_ROOM_ID:-1750753391}"
 CONF_DIR=/etc/live-timer
-CONF_FILE="$CONF_DIR/config.json"
+DATA_DIR=/var/lib/live-timer
+# 运行配置放在 /var/lib/live-timer：服务以 www-data 运行，网页保存时能原子改写它
+# /etc/live-timer 只放口令（admin.json，root:www-data 0640，网页改不了它）
+CONF_FILE="$DATA_DIR/config.json"
+ADMIN_FILE="$CONF_DIR/admin.json"
 BIN=/usr/local/bin/live-timer.mjs
 OUT_FILE="$WEB_ROOT/api/live-timer.json"
 
@@ -38,7 +42,7 @@ if [ "$(id -u)" != "0" ]; then
 	exit 1
 fi
 
-echo "== 1/6 检查 Node =="
+echo "== 1/7 检查 Node =="
 if ! command -v node >/dev/null; then
 	echo "❌ 没装 Node。本工具需要 Node 22+（要用内置 WebSocket），建议：" >&2
 	echo "   curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs" >&2
@@ -52,7 +56,7 @@ if [ "$NODE_MAJOR" -lt 22 ]; then
 fi
 echo "Node $(node -v) OK"
 
-echo "== 2/6 准备文件 =="
+echo "== 2/7 准备文件 =="
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -109,8 +113,8 @@ fi
 install -m 0755 "$SRC_DIR/live-timer.mjs" "$BIN"
 install -m 0644 "$SRC_DIR/live-timer.service" /etc/systemd/system/live-timer.service
 
-echo "== 3/6 写配置 =="
-mkdir -p "$CONF_DIR" "$WEB_ROOT/api"
+echo "== 3/7 写配置 =="
+mkdir -p "$CONF_DIR" "$DATA_DIR" "$WEB_ROOT/api"`nchown "$WEB_USER":"$WEB_USER" "$DATA_DIR" 2>/dev/null || true
 if [ -f "$CONF_FILE" ]; then
 	echo "已存在 $CONF_FILE，保留不动（要改：sudo nano $CONF_FILE）"
 else
@@ -119,13 +123,14 @@ else
 		-e "s#/var/www/myqian-bao.top#${WEB_ROOT}#g" \
 		-e "s#换成你自己的长口令#${TOKEN}#" \
 		"$SRC_DIR/live-timer.config.example.json" >"$CONF_FILE"
-	chown root:"$WEB_USER" "$CONF_FILE"
-	chmod 0640 "$CONF_FILE"
+	# 由 www-data 持有：服务进程要能在网页上被保存配置时改写这个文件
+	chown "$WEB_USER":"$WEB_USER" "$CONF_FILE"
+	chmod 0600 "$CONF_FILE"
 	echo "已生成 $CONF_FILE（控制口令：$TOKEN）"
 fi
 chown "$WEB_USER":"$WEB_USER" "$WEB_ROOT/api" 2>/dev/null || true
 
-echo "== 4/6 试连一次 B 站弹幕 =="
+echo "== 4/7 试连一次 B 站弹幕 =="
 if sudo -u "$WEB_USER" node "$BIN" --config "$CONF_FILE" --check; then
 	echo "弹幕接口可达"
 else
@@ -133,13 +138,25 @@ else
 	echo "   若一直失败，在配置里填 cookie（浏览器登录后复制 SESSDATA=...）再重启。" >&2
 fi
 
-echo "== 5/6 启动服务 =="
+echo "== 5/7 启动服务 =="
 systemctl daemon-reload
 systemctl enable --now live-timer.service
 sleep 2
 systemctl --no-pager --lines=5 status live-timer.service || true
 
-echo "== 6/6 检查输出文件 =="
+echo "== 6/7 设置网页登录口令 =="
+if [ -f "$ADMIN_FILE" ]; then
+	echo "已存在 $ADMIN_FILE，保留（要改：sudo node $BIN --config $CONF_FILE --set-password）"
+else
+	node "$BIN" --config "$CONF_FILE" --set-password >/tmp/.lt-pw 2>&1 || true
+	chown root:"$WEB_USER" "$ADMIN_FILE" 2>/dev/null || true
+	chmod 0640 "$ADMIN_FILE" 2>/dev/null || true
+	grep -o '网页登录口令：.*' /tmp/.lt-pw 2>/dev/null || cat /tmp/.lt-pw 2>/dev/null
+	rm -f /tmp/.lt-pw
+	echo "（上面这串口令就是网页 ${REPO##*/} 站点 /live-timer/config/ 的登录口令）"
+fi
+
+echo "== 7/7 检查输出文件 =="
 if [ -f "$OUT_FILE" ]; then
 	echo "✅ 已开始写 $OUT_FILE"
 	head -c 200 "$OUT_FILE"; echo

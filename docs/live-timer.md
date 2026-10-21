@@ -22,7 +22,7 @@ curl -fsSL https://github.com/Fire0King/Fire0King.github.io/releases/download/si
 sudo bash /tmp/live-timer-install.sh
 ```
 
-脚本会：检查 Node ≥ 22 → 装 `/usr/local/bin/live-timer.mjs` 和 systemd 服务 → 生成 `/etc/live-timer/config.json`（随机控制口令）→ 试连一次弹幕 → 启动服务 → 验证 `api/live-timer.json` 是否写出来了。
+脚本会：检查 Node ≥ 22 → 装 `/usr/local/bin/live-timer.mjs` 和 systemd 服务 → 生成 `/var/lib/live-timer/config.json`（随机控制口令）→ 试连一次弹幕 → 启动服务 → **生成网页登录口令并打印** → 验证 `api/live-timer.json` 是否写出来了。
 
 > **国内服务器报 `curl: (56) OpenSSL SSL_read: ... unexpected eof`？**
 > Release 附件走 `objects.githubusercontent.com`，国内经常连不通（重试几次可能又通了）。
@@ -43,10 +43,10 @@ sudo bash /tmp/live-timer-install.sh
 
 ```bash
 journalctl -u live-timer -f                 # 看日志
-sudo nano /etc/live-timer/config.json       # 改配置
+sudo nano /var/lib/live-timer/config.json       # 改配置
 sudo systemctl restart live-timer           # 改完重启
-node /usr/local/bin/live-timer.mjs --config /etc/live-timer/config.json --check      # 只自检连通性
-node /usr/local/bin/live-timer.mjs --config /etc/live-timer/config.json --self-test  # 离线自检
+node /usr/local/bin/live-timer.mjs --config /var/lib/live-timer/config.json --check      # 只自检连通性
+node /usr/local/bin/live-timer.mjs --config /var/lib/live-timer/config.json --self-test  # 离线自检
 ```
 
 > `--check` 走的是真实的 `getDanmuInfo`（带 wbi 签名），能拿到弹幕服务器列表就说明签名/IP 没问题。
@@ -59,6 +59,8 @@ node /usr/local/bin/live-timer.mjs --config /etc/live-timer/config.json --self-t
 ---
 
 ## 2. 配置说明
+
+配置文件在 /var/lib/live-timer/config.json（属主 www-data，网页保存时由服务原子改写）；口令在 /etc/live-timer/admin.json（root:www-data 0640，网页改不了）。
 
 ```jsonc
 {
@@ -132,18 +134,33 @@ OBS 里加「浏览器源」：
 https://myqian-bao.top/live-timer/?pos=br&scale=1.2&label=今天还能播
 ```
 
-### 配置台（在网页上改，不用背参数）
+### 配置台（网页上直接改，要口令）
 
 导航栏「直播配置」→ `https://你的域名/live-timer/config/`
 
-左边调参数，右边实时预览（预览走 `mock=1`，用本地假数据走字 + 每 6 秒飘一条假礼物，不连服务端、不影响线上），下面直接给出两样东西：
+页面分两块：
 
-- **OBS 地址** —— 样式参数全在 URL 里，复制进浏览器源即可，改样式不需要动服务器；
-- **服务端配置片段** —— `initialMinutes` / `cnyToMinutes` / `gifts` / `guards` / `caps`，合并进 `/etc/live-timer/config.json` 后 `systemctl restart live-timer` 生效。
+- **服务器配置（需要口令）**：登录后直接读/写服务器上的 `/var/lib/live-timer/config.json`，点「保存到服务器」立刻生效，不用 SSH、不用重启。开局时长在下次「重新开局」时生效，礼物规则、上限、直播间号立即生效（改直播间号会自动重连弹幕）。
+- **叠层样式（公开，不用口令）**：位置、缩放、文案、主色、主题、飘屏/进度条开关。这些只影响 URL，右边实时预览（`mock=1` 本地假数据），改完复制「OBS 地址」即可。
 
-改完想直接看效果，可以点「新窗口打开」（地址里不带 `mock`，走真实数据）。
+安全设计：
 
-> ⚠️ 生成的是**片段**，不是整份配置：`outFile`、`stateFile`、`adminToken` 必须保留服务器上的原值，别整份覆盖。
+| 项 | 做法 |
+| --- | --- |
+| 口令存储 | 只存 scrypt 哈希（`/etc/live-timer/admin.json`，`0640 root:www-data`），不可逆推，网页拿不到明文 |
+| 登录态 | 登录后发一个 HMAC 签名令牌（8 小时），之后请求带 `Authorization: Bearer`；令牌过期或伪造一律 401 |
+| 爆破防护 | 同一 IP 10 分钟内错 5 次锁 5 分钟（锁定期内正确口令也进不去），失败会写日志 |
+| 写入范围 | 只接受白名单字段（`roomId` / `initialMinutes` / `cnyToMinutes` / `ignoreSilverGifts` / `gifts` / `guards` / `caps`），`outFile`、`stateFile`、`adminToken` 这类字段即使传了也会被忽略 |
+| 传输 | 只走 HTTPS（nginx 443）；管理接口不返回 CORS 头，跨站脚本读不到 |
+
+设置/重置口令（在服务器上）：
+
+```bash
+node /usr/local/bin/live-timer.mjs --config /var/lib/live-timer/config.json --set-password
+# 不给参数 = 随机生成并打印；也可以 --set-password 你的口令（≥6 位）
+```
+
+改完不用重启，下一次登录就用新口令。忘记口令也用它重置。
 
 ### 网页控制台（可选）
 

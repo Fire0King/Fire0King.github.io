@@ -8,11 +8,12 @@ Wants=network-online.target
 Type=simple
 User=www-data
 Group=www-data
-Environment=LIVE_TIMER_CONFIG=/etc/live-timer/config.json
-ExecStart=/usr/bin/env node /usr/local/bin/live-timer.mjs --config /etc/live-timer/config.json
+Environment=LIVE_TIMER_CONFIG=/var/lib/live-timer/config.json
+ExecStart=/usr/bin/env node /usr/local/bin/live-timer.mjs --config /var/lib/live-timer/config.json
 Restart=always
 RestartSec=5
-# /var/lib/live-timer 由 systemd 自动创建并归属 www-data，用来放断点续计的状态文件
+# /var/lib/live-timer 由 systemd 自动创建并归属 www-data：
+# 里面放断点续计的状态文件，以及网页端能改写的 config.json
 StateDirectory=live-timer
 NoNewPrivileges=true
 PrivateTmp=true

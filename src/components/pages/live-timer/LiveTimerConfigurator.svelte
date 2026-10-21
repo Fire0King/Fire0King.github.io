@@ -64,8 +64,273 @@ let origin = $state("");
 let copied = $state("");
 let previewUrl = $state(`${OVERLAY_PATH}?mock=1&bg=1&mockMinutes=120`);
 
+/* ---------- 服务器配置：口令登录后直接在线读写 ---------- */
+
+let apiBase = $state(`${BASE}live-timer-api`);
+
+interface ServerConfig {
+	roomId: number;
+	initialMinutes: number;
+	cnyToMinutes: number;
+	ignoreSilverGifts: boolean;
+	gifts: Record<string, number>;
+	guards: Record<string, number>;
+	caps: {
+		perGiftMinutes: number;
+		perUserPerMinute: number;
+		totalMinutes: number;
+	};
+}
+
+interface RuntimeInfo {
+	roomId: number;
+	connected: boolean;
+	reason: string;
+	remainingMs: number;
+	paused: boolean;
+	giftCount: number;
+	addedMs: number;
+}
+
+let loggedIn = $state(false);
+let token = $state("");
+let loginPassword = $state("");
+let loginBusy = $state(false);
+let loginError = $state("");
+let saveBusy = $state(false);
+let saveMsg = $state("");
+let saveError = $state("");
+let runtime = $state<RuntimeInfo | null>(null);
+
+const runtimeLabel = $derived.by(() => {
+	if (!runtime) return "状态未知";
+	const parts = [runtime.connected ? "弹幕已连接" : "弹幕未连接"];
+	if (runtime.paused) parts.push("已暂停");
+	const minutes = Math.round(runtime.remainingMs / 60_000);
+	parts.push(minutes >= 0 ? `剩余 ${minutes} 分钟` : `加班 ${-minutes} 分钟`);
+	return parts.join(" · ");
+});
+
+/** 把服务器返回的配置灌进表单 */
+function applyServerConfig(config: ServerConfig): void {
+	roomId = String(config.roomId ?? "");
+	initialMinutes = Number(config.initialMinutes) || 120;
+	cnyToMinutes = Number(config.cnyToMinutes) || 0;
+	ignoreSilver = config.ignoreSilverGifts !== false;
+	guardCaptain = Number(config.guards?.[1]) || 0;
+	guardAdmiral = Number(config.guards?.[2]) || 0;
+	guardGovernor = Number(config.guards?.[3]) || 0;
+	perGift = Number(config.caps?.perGiftMinutes) || 0;
+	perUser = Number(config.caps?.perUserPerMinute) || 0;
+	totalCap = Number(config.caps?.totalMinutes) || 0;
+	const rows: GiftRow[] = [];
+	for (const [name, minutes] of Object.entries(config.gifts ?? {})) {
+		rows.push(makeGiftRow(name, Number(minutes) || 0));
+	}
+	giftRows = rows.length > 0 ? rows : [makeGiftRow("", 1)];
+}
+
+function makeGiftRow(name: string, minutes: number): GiftRow {
+	rowSeq += 1;
+	return { id: rowSeq, name, minutes };
+}
+
+function applyAuthSuccess(
+	nextToken: string,
+	config: ServerConfig | undefined,
+	info: RuntimeInfo | undefined,
+): void {
+	if (config) applyServerConfig(config);
+	if (info) runtime = info;
+	token = nextToken;
+	loggedIn = true;
+	try {
+		sessionStorage.setItem("live-timer-token", nextToken);
+	} catch {
+		// 隐私模式写不了也无所谓
+	}
+	void refreshRuntime();
+}
+
+async function login(): Promise<void> {
+	if (loginBusy) return;
+	loginBusy = true;
+	loginError = "";
+	saveMsg = "";
+	saveError = "";
+	try {
+		const res = await fetch(`${apiBase}/admin/login`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ password: loginPassword }),
+		});
+		const data = (await res.json().catch(() => ({}))) as {
+			ok?: boolean;
+			token?: string;
+			config?: ServerConfig;
+			runtime?: RuntimeInfo;
+			error?: string;
+		};
+		if (!res.ok || !data.ok || !data.token) {
+			throw new Error(data.error ?? `HTTP ${res.status}`);
+		}
+		loginPassword = "";
+		applyAuthSuccess(data.token, data.config, data.runtime);
+	} catch (err) {
+		loginError = err instanceof Error ? err.message : String(err);
+	} finally {
+		loginBusy = false;
+	}
+}
+
+async function restoreSession(): Promise<void> {
+	let saved = "";
+	try {
+		saved = sessionStorage.getItem("live-timer-token") ?? "";
+	} catch {
+		saved = "";
+	}
+	if (!saved) return;
+	try {
+		const res = await fetch(`${apiBase}/admin/config`, {
+			headers: { authorization: `Bearer ${saved}` },
+			cache: "no-store",
+		});
+		if (!res.ok) return;
+		const data = (await res.json()) as {
+			config?: ServerConfig;
+			runtime?: RuntimeInfo;
+		};
+		applyAuthSuccess(saved, data.config, data.runtime);
+	} catch {
+		// 拿不到就当作没登录
+	}
+}
+
+async function reloadFromServer(): Promise<void> {
+	saveMsg = "";
+	saveError = "";
+	try {
+		const res = await fetch(`${apiBase}/admin/config`, {
+			headers: { authorization: `Bearer ${token}` },
+			cache: "no-store",
+		});
+		if (res.status === 401) {
+			logout();
+			throw new Error("登录已过期，请重新输入口令");
+		}
+		const data = (await res.json()) as {
+			ok?: boolean;
+			config?: ServerConfig;
+			runtime?: RuntimeInfo;
+			error?: string;
+		};
+		if (!res.ok || !data.ok)
+			throw new Error(data.error ?? `HTTP ${res.status}`);
+		if (data.config) applyServerConfig(data.config);
+		if (data.runtime) runtime = data.runtime;
+		saveMsg = "已从服务器重新加载";
+	} catch (err) {
+		saveError = err instanceof Error ? err.message : String(err);
+	}
+}
+
+async function saveToServer(): Promise<void> {
+	if (saveBusy) return;
+	saveBusy = true;
+	saveMsg = "";
+	saveError = "";
+	try {
+		const payload = {
+			config: {
+				roomId: Number(roomId) || 0,
+				initialMinutes: Number(initialMinutes) || 0,
+				cnyToMinutes: Number(cnyToMinutes) || 0,
+				ignoreSilverGifts: ignoreSilver,
+				gifts: giftMap,
+				guards: {
+					1: Number(guardCaptain) || 0,
+					2: Number(guardAdmiral) || 0,
+					3: Number(guardGovernor) || 0,
+				},
+				caps: {
+					perGiftMinutes: Number(perGift) || 0,
+					perUserPerMinute: Number(perUser) || 0,
+					totalMinutes: Number(totalCap) || 0,
+				},
+			},
+		};
+		const res = await fetch(`${apiBase}/admin/config`, {
+			method: "PUT",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify(payload),
+		});
+		const data = (await res.json().catch(() => ({}))) as {
+			ok?: boolean;
+			config?: ServerConfig;
+			runtime?: RuntimeInfo;
+			error?: string;
+		};
+		if (res.status === 401) {
+			logout();
+			throw new Error(data.error ?? "登录已过期，请重新输入口令");
+		}
+		if (!res.ok || !data.ok)
+			throw new Error(data.error ?? `HTTP ${res.status}`);
+		if (data.config) applyServerConfig(data.config);
+		if (data.runtime) runtime = data.runtime;
+		saveMsg = "已保存；礼物规则立即生效，开局时长在下次「重新开局」时生效";
+	} catch (err) {
+		saveError = err instanceof Error ? err.message : String(err);
+	} finally {
+		saveBusy = false;
+	}
+}
+
+function logout(): void {
+	token = "";
+	loggedIn = false;
+	saveMsg = "";
+	saveError = "";
+	try {
+		sessionStorage.removeItem("live-timer-token");
+	} catch {
+		// ignore
+	}
+}
+
+async function refreshRuntime(): Promise<void> {
+	try {
+		const res = await fetch(`${apiBase}/state`, { cache: "no-store" });
+		if (!res.ok) return;
+		const data = (await res.json()) as Partial<RuntimeInfo>;
+		runtime = {
+			roomId: Number(data.roomId) || 0,
+			connected: Boolean(data.connected),
+			reason: String(data.reason ?? ""),
+			remainingMs: Number(data.remainingMs) || 0,
+			paused: Boolean(data.paused),
+			giftCount: Number(data.giftCount) || 0,
+			addedMs: Number(data.addedMs) || 0,
+		};
+	} catch {
+		// 拉不到就保持上一次的状态
+	}
+}
+
 onMount(() => {
 	origin = window.location.origin;
+	// 本地调试可以 ?api=http://127.0.0.1:8848 指向本机服务；线上不传就用 nginx 反代路径
+	const override = new URLSearchParams(window.location.search).get("api");
+	if (override) apiBase = override.replace(/\/$/, "");
+	void restoreSession();
+	const timer = window.setInterval(() => {
+		if (loggedIn) void refreshRuntime();
+	}, 10_000);
+	return () => window.clearInterval(timer);
 });
 
 /** 样式参数 → URL 查询串（默认值不写进 URL，地址保持干净） */
@@ -146,8 +411,7 @@ function formatSpan(ms: number): string {
 }
 
 function addRow(): void {
-	rowSeq += 1;
-	giftRows = [...giftRows, { id: rowSeq, name: "", minutes: 1 }];
+	giftRows = [...giftRows, makeGiftRow("", 1)];
 }
 
 function removeRow(id: number): void {
@@ -200,8 +464,26 @@ function downloadConfig(): void {
 </script>
 
 <div class="configurator">
+	{#if loggedIn}
+		<div class="savebar">
+			<span class="pill" class:off={!runtime?.connected}>{runtimeLabel}</span>
+			<div class="savebar-actions">
+				<button type="button" class="ghost" onclick={reloadFromServer} disabled={saveBusy}>
+					重新加载
+				</button>
+				<button type="button" class="ghost" onclick={logout} disabled={saveBusy}>退出</button>
+				<button type="button" class="primary" onclick={saveToServer} disabled={saveBusy}>
+					{saveBusy ? "保存中…" : "保存到服务器"}
+				</button>
+			</div>
+		</div>
+		{#if saveMsg}<p class="ok">{saveMsg}</p>{/if}
+		{#if saveError}<p class="err">{saveError}</p>{/if}
+	{/if}
+
 	<div class="panels">
 		<div class="form">
+			{#if loggedIn}
 			<section class="panel">
 				<h3>直播与时长</h3>
 				<div class="grid">
@@ -287,6 +569,38 @@ function downloadConfig(): void {
 				</div>
 				<p class="hint">单位都是分钟；填 0 表示不限制。整场总量建议一定要设，不然一场能被加到天亮。</p>
 			</section>
+			{:else}
+			<section class="panel login">
+				<h3>需要口令</h3>
+				<p class="hint">
+					这个表单会直接改服务器上的 <code>/etc/live-timer/config.json</code> 并立刻生效，所以要先验证身份。
+					口令只以 scrypt 哈希形式存在服务器上，网页这边不保存明文。
+				</p>
+				<form
+					class="login-form"
+					onsubmit={(event) => {
+						event.preventDefault();
+						void login();
+					}}
+				>
+					<input
+						type="password"
+						placeholder="网页口令"
+						bind:value={loginPassword}
+						autocomplete="current-password"
+						disabled={loginBusy}
+					/>
+					<button type="submit" class="primary" disabled={loginBusy}>
+						{loginBusy ? "验证中…" : "进入编辑"}
+					</button>
+				</form>
+				{#if loginError}<p class="err">{loginError}</p>{/if}
+				<p class="hint">
+					口令在服务器上设置：<code>sudo node /usr/local/bin/live-timer.mjs --set-password</code>
+					（不给参数会随机生成并打印）。连续输错 5 次会锁 5 分钟。
+				</p>
+			</section>
+			{/if}
 
 			<section class="panel">
 				<h3>叠层样式</h3>
@@ -357,21 +671,26 @@ function downloadConfig(): void {
 				</div>
 				<p class="hint">OBS → 来源 → 浏览器源，宽高填 1920×1080，页面背景本身就是透明的。</p>
 
-				<h3 class="gap">服务端配置片段</h3>
-				<div class="output">
-					<textarea readonly rows="12">{configJson}</textarea>
-					<div class="output-actions">
-						<button type="button" class="primary" onclick={() => copy(configJson, "json")}>
-							{copied === "json" ? "已复制" : "复制配置"}
-						</button>
-						<button type="button" class="ghost" onclick={downloadConfig}>下载</button>
+				<details class="advanced">
+					<summary>手动编辑（高级）</summary>
+					<p class="hint">
+						登录后左边的表单会直接改服务器并保存;这一块是给「只改本地草稿 / 手动改配置文件」准备的。
+					</p>
+					<div class="output">
+						<textarea readonly rows="10">{configJson}</textarea>
+						<div class="output-actions">
+							<button type="button" class="primary" onclick={() => copy(configJson, "json")}>
+								{copied === "json" ? "已复制" : "复制配置"}
+							</button>
+							<button type="button" class="ghost" onclick={downloadConfig}>下载</button>
+						</div>
 					</div>
-				</div>
-				<p class="hint warn">
-					这是<strong>片段</strong>：把这几项合并进 <code>/etc/live-timer/config.json</code>，
-					别整份覆盖 —— 里面的 <code>outFile</code>、<code>stateFile</code>、<code>adminToken</code> 要保留服务器上的原值。
-					改完 <code>sudo systemctl restart live-timer</code>。
-				</p>
+					<p class="hint warn">
+						这是<strong>片段</strong>：手动合并进 <code>/etc/live-timer/config.json</code> 时，
+						别整份覆盖 —— <code>outFile</code>、<code>stateFile</code>、<code>adminToken</code> 要保留服务器上的原值。
+						改完 <code>sudo systemctl restart live-timer</code>。
+					</p>
+				</details>
 			</section>
 		</aside>
 	</div>
@@ -380,6 +699,95 @@ function downloadConfig(): void {
 <style>
 	.configurator {
 		width: 100%;
+	}
+
+	.savebar {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.75rem;
+		padding: 0.6rem 0.8rem;
+		border: 1px solid var(--line-divider);
+		border-radius: 0.8rem;
+		background-color: var(--card-bg);
+	}
+
+	.pill {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.2rem 0.6rem;
+		border-radius: 999px;
+		background-color: var(--btn-plain-bg-hover);
+		color: var(--primary);
+		font-size: 0.75rem;
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.pill.off {
+		color: #f59e0b;
+	}
+
+	.savebar-actions {
+		display: flex;
+		gap: 0.5rem;
+		margin-left: auto;
+	}
+
+	.ok {
+		margin: 0 0 0.75rem;
+		padding: 0.5rem 0.7rem;
+		border-left: 3px solid #22c55e;
+		border-radius: 0.4rem;
+		background-color: var(--btn-regular-bg);
+		color: var(--deep-text);
+		font-size: 0.78rem;
+	}
+
+	.err {
+		margin: 0.55rem 0 0.75rem;
+		padding: 0.5rem 0.7rem;
+		border-left: 3px solid #f43f5e;
+		border-radius: 0.4rem;
+		background-color: var(--btn-regular-bg);
+		color: #f43f5e;
+		font-size: 0.78rem;
+	}
+
+	.login-form {
+		display: flex;
+		gap: 0.5rem;
+		margin-top: 0.6rem;
+	}
+
+	.login-form input {
+		flex: 1;
+		min-width: 0;
+		padding: 0.5rem 0.7rem;
+		border: 1px solid var(--line-divider);
+		border-radius: 0.55rem;
+		background-color: var(--btn-regular-bg);
+		color: var(--deep-text);
+		font: inherit;
+		font-size: 0.85rem;
+	}
+
+	.advanced {
+		margin-top: 1.15rem;
+		padding-top: 0.8rem;
+		border-top: 1px solid var(--line-divider);
+	}
+
+	.advanced summary {
+		cursor: pointer;
+		font-size: 0.82rem;
+		font-weight: 600;
+		color: var(--content-meta);
+	}
+
+	.advanced summary:hover {
+		color: var(--primary);
 	}
 
 	.panels {

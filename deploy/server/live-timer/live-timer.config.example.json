@@ -5,6 +5,7 @@
 	"adminToken": "换成你自己的长口令",
 	"outFile": "/var/www/myqian-bao.top/api/live-timer.json",
 	"stateFile": "/var/lib/live-timer/state.json",
+	"adminFile": "/etc/live-timer/admin.json",
 	"cookie": "",
 
 	"initialMinutes": 120,

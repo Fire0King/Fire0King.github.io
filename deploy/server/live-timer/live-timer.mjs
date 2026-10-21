@@ -17,8 +17,14 @@
  *   演示：node live-timer.mjs --demo        # 不连 B 站，只跑计时 + 假礼物，用来调样式
  */
 
-import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+	createHash,
+	createHmac,
+	randomBytes,
+	scryptSync,
+	timingSafeEqual,
+} from "node:crypto";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import {
@@ -68,6 +74,154 @@ async function writeJsonAtomic(file, data) {
 	await rename(tmp, file);
 }
 
+/* ------------------------------------------------------------------ 口令与会话 */
+
+/**
+ * 网页端改配置的鉴权：
+ *   - 口令只存 scrypt 哈希（不存明文，也不可逆推）；
+ *   - 登录成功后发一个 HMAC 签名的令牌（8 小时），之后每次请求带 Bearer 令牌；
+ *   - 连续错 5 次锁 5 分钟，避免被爆破。
+ */
+const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 };
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+
+function hashPassword(password) {
+	const salt = randomBytes(16);
+	const hash = scryptSync(String(password), salt, SCRYPT.keylen, {
+		N: SCRYPT.N,
+		r: SCRYPT.r,
+		p: SCRYPT.p,
+	});
+	return `scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${salt.toString("base64")}$${hash.toString("base64")}`;
+}
+
+function verifyPassword(password, stored) {
+	try {
+		const [scheme, n, r, p, saltB64, hashB64] = String(stored).split("$");
+		if (scheme !== "scrypt" || !saltB64 || !hashB64) return false;
+		const salt = Buffer.from(saltB64, "base64");
+		const expected = Buffer.from(hashB64, "base64");
+		if (expected.length === 0) return false;
+		const actual = scryptSync(String(password), salt, expected.length, {
+			N: Number(n),
+			r: Number(r),
+			p: Number(p),
+			maxmem: 64 * 1024 * 1024,
+		});
+		return actual.length === expected.length && timingSafeEqual(actual, expected);
+	} catch {
+		return false;
+	}
+}
+
+function signSession(secret, expMs) {
+	const payload = `${expMs}.${randomBytes(9).toString("base64url")}`;
+	const sig = createHmac("sha256", secret).update(payload).digest("base64url");
+	return { token: `${payload}.${sig}`, exp: expMs };
+}
+
+function verifySession(secret, token) {
+	const parts = String(token ?? "").split(".");
+	if (parts.length !== 3) return null;
+	const [expStr, nonce, sig] = parts;
+	const expected = createHmac("sha256", secret)
+		.update(`${expStr}.${nonce}`)
+		.digest();
+	let given;
+	try {
+		given = Buffer.from(sig, "base64url");
+	} catch {
+		return null;
+	}
+	if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+		return null;
+	}
+	const exp = Number(expStr);
+	if (!Number.isFinite(exp) || exp < Date.now()) return null;
+	return { exp };
+}
+
+/* ------------------------------------------------------------------ 可在线编辑的配置 */
+
+const EDITABLE_KEYS = [
+	"roomId",
+	"initialMinutes",
+	"cnyToMinutes",
+	"ignoreSilverGifts",
+	"gifts",
+	"guards",
+	"caps",
+];
+
+function pickEditable(config) {
+	return {
+		roomId: config.roomId,
+		initialMinutes: config.initialMinutes,
+		cnyToMinutes: config.cnyToMinutes,
+		ignoreSilverGifts: config.ignoreSilverGifts,
+		gifts: { ...config.gifts },
+		guards: {
+			1: Number(config.guards[1]) || 0,
+			2: Number(config.guards[2]) || 0,
+			3: Number(config.guards[3]) || 0,
+		},
+		caps: { ...config.caps },
+	};
+}
+
+/** 只做白名单字段的校验 + 夹紧，绝不接受 outFile / stateFile / adminToken 这类字段 */
+function normalizeEditable(raw) {
+	if (!raw || typeof raw !== "object") {
+		return { ok: false, error: "配置不是对象" };
+	}
+	const roomId = Math.round(Number(raw.roomId));
+	if (!Number.isFinite(roomId) || roomId <= 0 || roomId > 1e9) {
+		return { ok: false, error: "直播间号不合法（应为正整数）" };
+	}
+	const gifts = {};
+	const rawGifts = raw.gifts && typeof raw.gifts === "object" ? raw.gifts : {};
+	let count = 0;
+	for (const [key, value] of Object.entries(rawGifts)) {
+		const name = String(key).trim();
+		if (!name || name.length > 40 || /[\u0000-\u001f]/.test(name)) continue;
+		const minutes = Number(value);
+		if (!Number.isFinite(minutes) || minutes < 0) continue;
+		gifts[name] = Math.round(Math.min(1440, minutes) * 10) / 10;
+		count += 1;
+		if (count >= 60) break;
+	}
+	const guardOf = (level) => {
+		const n = Number(raw.guards?.[level]);
+		return Number.isFinite(n) ? Math.min(1440, Math.max(0, Math.round(n))) : 0;
+	};
+	const capOf = (key, max) => {
+		const n = Number(raw.caps?.[key]);
+		return Number.isFinite(n) ? Math.min(max, Math.max(0, Math.round(n))) : 0;
+	};
+	return {
+		ok: true,
+		value: {
+			roomId,
+			initialMinutes: Math.min(
+				1440,
+				Math.max(1, Math.round(Number(raw.initialMinutes) || 120)),
+			),
+			cnyToMinutes: Math.min(
+				600,
+				Math.max(0, Number(raw.cnyToMinutes) || 0),
+			),
+			ignoreSilverGifts: raw.ignoreSilverGifts !== false,
+			gifts,
+			guards: { 1: guardOf(1), 2: guardOf(2), 3: guardOf(3) },
+			caps: {
+				perGiftMinutes: capOf("perGiftMinutes", 1440),
+				perUserPerMinute: capOf("perUserPerMinute", 1440),
+				totalMinutes: capOf("totalMinutes", 10080),
+			},
+		},
+	};
+}
+
 /* ------------------------------------------------------------------ 配置 */
 
 const DEFAULT_CONFIG = {
@@ -78,6 +232,11 @@ const DEFAULT_CONFIG = {
 	port: 8848,
 	/** 控制接口口令，留空则只允许 127.0.0.1 调用 */
 	adminToken: "",
+	/**
+	 * 网页端登录用的口令与签名密钥（只有哈希和随机密钥，不存明文）。
+	 * 由 `node live-timer.mjs --set-password` 生成，权限 0640 root:www-data。
+	 */
+	adminFile: "/etc/live-timer/admin.json",
 	/** 状态输出的 JSON 路径 */
 	outFile: "/var/www/site/api/live-timer.json",
 	/** 进程重启后恢复计时用的状态文件 */
@@ -198,9 +357,11 @@ class TimerState {
 		this.paused = false;
 	}
 
-	/** 整场重新开始（换场直播时用） */
+	/** 整场重新开始（换场直播时用）；开局时长按「当前配置」算，改配置后点重开就生效 */
 	start() {
 		const now = Date.now();
+		const initialMs = Math.round(Number(this.config.initialMinutes) * 60_000);
+		if (Number.isFinite(initialMs) && initialMs > 0) this.initialMs = initialMs;
 		this.deadline = now + this.initialMs;
 		this.startedAt = now;
 		this.paused = false;
@@ -793,12 +954,13 @@ async function main() {
 	};
 
 	if (flag("--help") || flag("-h")) {
-		console.log(`用法: node live-timer.mjs [--config 配置路径] [--check] [--self-test] [--demo]
+		console.log(`用法: node live-timer.mjs [--config 配置路径] [--set-password [口令]] [--check] [--self-test] [--demo]
 
-  --config <path>  配置文件（默认 ./live-timer.config.json，可用 LIVE_TIMER_CONFIG 覆盖）
-  --check          只验证能否拿到弹幕服务器地址，然后退出
-  --self-test      离线自检：协议解包 / 礼物折算 / 计时与上限
-  --demo           不连 B 站，跑一个假计时器（调 OBS 样式用），礼物用 POST /control 模拟`);
+  --config <path>        配置文件（默认 ./live-timer.config.json，可用 LIVE_TIMER_CONFIG 覆盖）
+  --set-password [口令]   设置/重置网页登录口令（不给口令就随机生成并打印）
+  --check                只验证能否拿到弹幕服务器地址，然后退出
+  --self-test            离线自检：协议解包 / 礼物折算 / 计时与上限
+  --demo                 不连 B 站，跑一个假计时器（调 OBS 样式用），礼物用 POST /control 模拟`);
 		return;
 	}
 
@@ -810,9 +972,39 @@ async function main() {
 		"--config",
 		process.env.LIVE_TIMER_CONFIG ?? "./live-timer.config.json",
 	);
-	const raw = await readJson(resolve(configPath));
-	if (!raw) die(`读不到配置文件：${resolve(configPath)}`);
+	const configFilePath = resolve(configPath);
+	const raw = await readJson(configFilePath);
+	if (!raw) die(`读不到配置文件：${configFilePath}`);
 	const config = loadConfig(raw);
+
+	// 设置网页登录口令：node live-timer.mjs --set-password [口令]
+	// 不给口令就随机生成一个并打印；只存 scrypt 哈希，不存明文
+	if (flag("--set-password")) {
+		const idx = argv.indexOf("--set-password");
+		const next = argv[idx + 1];
+		const given =
+			next && !next.startsWith("--")
+				? next
+				: (process.env.LIVE_TIMER_ADMIN_PASSWORD ?? "");
+		const password =
+			String(given).trim().length >= 6
+				? String(given).trim()
+				: randomBytes(9).toString("base64url");
+		const adminPath = resolve(config.adminFile);
+		await writeJsonAtomic(adminPath, {
+			passwordHash: hashPassword(password),
+			sessionSecret: randomBytes(32).toString("base64"),
+			updatedAt: new Date().toISOString(),
+		});
+		await chmod(adminPath, 0o640).catch(() => {});
+		console.log(`✅ 网页登录口令：${password}`);
+		console.log(`   文件：${adminPath}（建议 chown root:www-data，权限 0640）`);
+		console.log("   不用重启服务，下一次登录立刻生效。");
+		if (String(given).trim().length > 0 && String(given).trim().length < 6) {
+			console.log("   ⚠️ 你给的口令太短（< 6 位），已改用随机口令。");
+		}
+		return;
+	}
 
 	if (flag("--self-test")) {
 		await selfTest(config);
@@ -944,6 +1136,133 @@ async function main() {
 		return req.headers["x-timer-token"] === config.adminToken;
 	}
 
+	/* ---------- 网页端：口令登录 + 在线改配置 ---------- */
+
+	const adminPath = resolve(config.adminFile);
+
+	/** 不带 CORS 的响应：浏览器里的跨站脚本读不到内容，也就不存在 CSRF 拿数据的问题 */
+	const jsonPlain = (res, code, payload) => {
+		res.writeHead(code, {
+			"Content-Type": "application/json; charset=utf-8",
+			"Cache-Control": "no-store",
+			"X-Content-Type-Options": "nosniff",
+		});
+		res.end(JSON.stringify(payload));
+	};
+
+	const readBody = async (req, limit = 64 * 1024) => {
+		const chunks = [];
+		let size = 0;
+		for await (const chunk of req) {
+			size += chunk.length;
+			if (size > limit) throw new Error("请求体太大");
+			chunks.push(chunk);
+		}
+		return Buffer.concat(chunks).toString("utf8");
+	};
+
+	const clientIp = (req) => {
+		const forwarded = String(req.headers["x-real-ip"] ?? "").trim();
+		if (forwarded) return forwarded;
+		return String(req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+	};
+
+	// 登录限速：同一 IP 10 分钟内错 5 次 → 锁 5 分钟
+	const RATE = { max: 5, windowMs: 10 * 60_000, blockMs: 5 * 60_000 };
+	const loginRate = new Map();
+	function checkRate(ip) {
+		const now = Date.now();
+		const rec = loginRate.get(ip);
+		if (!rec) return { allowed: true, remaining: RATE.max };
+		if (rec.blockedUntil > now) {
+			return {
+				allowed: false,
+				retryAfter: Math.ceil((rec.blockedUntil - now) / 1000),
+				remaining: 0,
+			};
+		}
+		if (now - rec.firstAt > RATE.windowMs) {
+			loginRate.delete(ip);
+			return { allowed: true, remaining: RATE.max };
+		}
+		if (rec.count >= RATE.max) {
+			rec.blockedUntil = now + RATE.blockMs;
+			return {
+				allowed: false,
+				retryAfter: Math.ceil(RATE.blockMs / 1000),
+				remaining: 0,
+			};
+		}
+		return { allowed: true, remaining: RATE.max - rec.count };
+	}
+	function recordFail(ip) {
+		const now = Date.now();
+		const rec = loginRate.get(ip);
+		if (!rec || now - rec.firstAt > RATE.windowMs) {
+			loginRate.set(ip, { count: 1, firstAt: now, blockedUntil: 0 });
+		} else {
+			rec.count += 1;
+		}
+		if (loginRate.size > 2000) {
+			for (const [key, value] of loginRate) {
+				if (now - value.firstAt > RATE.windowMs) loginRate.delete(key);
+			}
+		}
+	}
+
+	const runtimeInfo = () => ({
+		roomId: config.roomId,
+		connected: runtime.connected,
+		reason: runtime.reason,
+		remainingMs: state.remainingMs(),
+		paused: state.paused,
+		giftCount: state.giftCount,
+		addedMs: state.addedMs,
+	});
+
+	const loadAdmin = () => readJson(adminPath).catch(() => null);
+
+	function adminAuth(req) {
+		const header = String(req.headers.authorization ?? "");
+		const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+		if (!token) return { ok: false, code: 401, error: "请先输入口令" };
+		return (async () => {
+			const admin = await loadAdmin();
+			if (!admin?.passwordHash || !admin?.sessionSecret) {
+				return { ok: false, code: 503, error: "服务端还没设置口令" };
+			}
+			const session = verifySession(admin.sessionSecret, token);
+			if (!session) {
+				return { ok: false, code: 401, error: "登录已过期，请重新输入口令" };
+			}
+			return { ok: true, session };
+		})();
+	}
+
+	/** 只把可编辑字段合并回配置文件，别的字段原样保留 */
+	async function persistConfig() {
+		const current = (await readJson(configFilePath).catch(() => null)) ?? {};
+		const merged = { ...current, ...pickEditable(config) };
+		await writeJsonAtomic(configFilePath, merged);
+		await chmod(configFilePath, 0o600).catch(() => {});
+	}
+
+	function applyEditable(value) {
+		const roomChanged = value.roomId !== config.roomId;
+		config.roomId = value.roomId;
+		config.initialMinutes = value.initialMinutes;
+		config.cnyToMinutes = value.cnyToMinutes;
+		config.ignoreSilverGifts = value.ignoreSilverGifts;
+		config.gifts = value.gifts;
+		config.guards = value.guards;
+		config.caps = value.caps;
+		if (roomChanged && !demo) {
+			log(`🔀 直播间号改成 ${value.roomId}，重连弹幕`);
+			startClient();
+		}
+		return roomChanged;
+	}
+
 	const server = createServer(async (req, res) => {
 		const url = new URL(
 			req.url ?? "/",
@@ -976,6 +1295,113 @@ async function main() {
 				roomId: config.roomId,
 				remainingMs: state.remainingMs(),
 			});
+			return;
+		}
+
+		if (req.method === "POST" && url.pathname === "/admin/login") {
+			const ip = clientIp(req);
+			const rate = checkRate(ip);
+			if (!rate.allowed) {
+				jsonPlain(res, 429, {
+					ok: false,
+					error: `尝试太频繁，${rate.retryAfter} 秒后再试`,
+					retryAfter: rate.retryAfter,
+				});
+				return;
+			}
+			const admin = await loadAdmin();
+			if (!admin?.passwordHash || !admin?.sessionSecret) {
+				jsonPlain(res, 503, {
+					ok: false,
+					error: "服务端还没设置口令，先在服务器上执行：node /usr/local/bin/live-timer.mjs --set-password",
+				});
+				return;
+			}
+			let payload = {};
+			try {
+				payload = JSON.parse((await readBody(req)) || "{}");
+			} catch {
+				jsonPlain(res, 400, { ok: false, error: "请求体不是 JSON" });
+				return;
+			}
+			const password = String(payload.password ?? "");
+			if (!password || !verifyPassword(password, admin.passwordHash)) {
+				recordFail(ip);
+				log(`🔒 网页登录失败（${ip}）`);
+				jsonPlain(res, 401, {
+					ok: false,
+					error: "口令不对",
+					remaining: Math.max(0, rate.remaining - 1),
+				});
+				return;
+			}
+			loginRate.delete(ip);
+			const { token, exp } = signSession(
+				admin.sessionSecret,
+				Date.now() + SESSION_TTL_MS,
+			);
+			log(`🔑 网页登录成功（${ip}）`);
+			jsonPlain(res, 200, {
+				ok: true,
+				token,
+				exp,
+				config: pickEditable(config),
+				runtime: runtimeInfo(),
+			});
+			return;
+		}
+
+		if (url.pathname === "/admin/config") {
+			const auth = await adminAuth(req);
+			if (!auth.ok) {
+				jsonPlain(res, auth.code, { ok: false, error: auth.error });
+				return;
+			}
+			if (req.method === "GET") {
+				jsonPlain(res, 200, {
+					ok: true,
+					config: pickEditable(config),
+					runtime: runtimeInfo(),
+					sessionExp: auth.session.exp,
+				});
+				return;
+			}
+			if (req.method === "PUT") {
+				let payload = {};
+				try {
+					payload = JSON.parse((await readBody(req)) || "{}");
+				} catch {
+					jsonPlain(res, 400, { ok: false, error: "请求体不是 JSON" });
+					return;
+				}
+				const result = normalizeEditable(payload.config);
+				if (!result.ok) {
+					jsonPlain(res, 400, { ok: false, error: result.error });
+					return;
+				}
+				const roomChanged = applyEditable(result.value);
+				try {
+					await persistConfig();
+				} catch (err) {
+					log(`⚠️ 保存配置失败：${err.message}`);
+					jsonPlain(res, 500, {
+						ok: false,
+						error: `已生效但写入文件失败：${err.message}`,
+					});
+					return;
+				}
+				log(
+					`⚙️ 网页更新配置（${clientIp(req)}）：房间 ${config.roomId}，开局 ${config.initialMinutes} 分钟，礼物 ${Object.keys(config.gifts).length} 条`,
+				);
+				jsonPlain(res, 200, {
+					ok: true,
+					config: pickEditable(config),
+					runtime: runtimeInfo(),
+					roomChanged,
+				});
+				return;
+			}
+			jsonPlain(res, 405, { ok: false, error: "只支持 GET / PUT" });
 			return;
 		}
 
@@ -1063,15 +1489,31 @@ async function main() {
 	/* ---------- 收尾 ---------- */
 
 	let client = null;
-	if (!demo) {
-		client = new DanmakuClient(config, onCommand, (status) => {
-			runtime.connected = Boolean(status.connected);
-			runtime.reason =
-				status.reason ?? (status.connected ? "已连接" : runtime.reason);
-			if (status.connected) runtime.reason = "已连接";
-			if (!status.connected && status.reason) log(`📴 ${status.reason}`);
-		});
+
+	function onStatus(status) {
+		runtime.connected = Boolean(status.connected);
+		if (status.connected) {
+			runtime.reason = "已连接";
+			return;
+		}
+		if (status.reason) {
+			runtime.reason = status.reason;
+			log(`📴 ${status.reason}`);
+		}
+	}
+
+	/** 启一个弹幕连接；改直播间号时会先停掉旧的再启新的 */
+	function startClient() {
+		if (demo) return;
+		client?.stop();
+		runtime.connected = false;
+		runtime.reason = "连接中";
+		client = new DanmakuClient(config, onCommand, onStatus);
 		client.run().catch((err) => log(`⚠️ 弹幕客户端退出：${err.message}`));
+	}
+
+	if (!demo) {
+		startClient();
 	} else {
 		log(
 			'🧪 demo 模式：不连 B 站，用 POST /control {"action":"demoGift"} 模拟礼物',
