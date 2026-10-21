@@ -175,7 +175,8 @@ function normalizeEditable(raw) {
 		return { ok: false, error: "配置不是对象" };
 	}
 	const roomId = Math.round(Number(raw.roomId));
-	if (!Number.isFinite(roomId) || roomId <= 0 || roomId > 1e9) {
+	// 注意：B 站真实房间号经常超过 10 亿（比如 1750753391），上限别写太小
+	if (!Number.isFinite(roomId) || roomId <= 0 || roomId > 1e12) {
 		return { ok: false, error: "直播间号不合法（应为正整数）" };
 	}
 	const gifts = {};
@@ -932,6 +933,34 @@ async function selfTest(config) {
 	check(
 		"同一礼物签名第二次被识别为重复",
 		!timer.seenRecently("x") && timer.seenRecently("x"),
+	);
+
+	console.log("4) 网页配置校验");
+	const okRoom = normalizeEditable({
+		roomId: 1750753391,
+		initialMinutes: 120,
+		cnyToMinutes: 1,
+		gifts: {},
+		guards: {},
+		caps: {},
+	});
+	check("真实房间号（>10 亿）能通过校验", okRoom.ok === true);
+	check(
+		"非法房间号被拒",
+		normalizeEditable({ roomId: 0, gifts: {}, guards: {}, caps: {} }).ok === false,
+	);
+	const trimmed = normalizeEditable({
+		roomId: 1,
+		gifts: { 小花花: 2.55, "": 9, 辣条: -1 },
+		guards: {},
+		caps: {},
+	});
+	check(
+		"礼物表被裁剪（负数丢弃、小数保留一位）",
+		trimmed.ok === true &&
+			trimmed.value.gifts["小花花"] === 2.6 &&
+			!("辣条" in trimmed.value.gifts) &&
+			!("" in trimmed.value.gifts),
 	);
 
 	console.log(
