@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
 # 一键安装「直播礼物加时器」（在服务器上以 root 执行）。
 #
-#   curl -fsSL https://github.com/Fire0King/Fire0King.github.io/releases/download/site-latest/install-live-timer.sh -o /tmp/live-timer-install.sh
-#   sudo bash /tmp/live-timer-install.sh
+# 国内服务器推荐这么用（Release 附件走 githubusercontent，经常 SSL unexpected eof）：
+#   curl -fsSL --retry 3 -o /tmp/repo.tgz https://codeload.github.com/Fire0King/Fire0King.github.io/tar.gz/refs/heads/main
+#   mkdir -p /tmp/repo && tar -xzf /tmp/repo.tgz -C /tmp/repo --strip-components=1
+#   sudo SITE_LOCAL_DIR=/tmp/repo/deploy/server/live-timer bash /tmp/repo/deploy/server/live-timer/install-live-timer.sh
+#
+# 或者从自己的电脑传上去：
+#   scp -r deploy/server/live-timer root@<服务器>:/tmp/lt
+#   sudo SITE_LOCAL_DIR=/tmp/lt/live-timer bash /tmp/lt/live-timer/install-live-timer.sh
 #
 # 作用：常驻一个进程连 B 站弹幕，把「还剩多久」写成站点根目录下的 api/live-timer.json，
 #      前端页面（/live-timer/）轮询它，OBS 里加个浏览器源就完事。
 #
 # 环境变量：
-#   SITE_BASE_URL   文件下载地址（默认走站点 Release，含 live-timer.mjs / .service / .config.example.json）
+#   SITE_LOCAL_DIR  本地文件目录（含 live-timer.mjs / .service / .config.example.json），设了就不联网取
+#   SITE_BASE_URL   Release 前缀（默认走 site-latest，国内可能不通）
+#   SITE_BRANCH     codeload 兜底用的分支（默认 main）
 #   SITE_WEB_ROOT   站点根目录（默认 /var/www/myqian-bao.top）
 #   LIVE_TIMER_ROOM_ID  直播间号（默认取脚本里的 1750753391）
 #   LIVE_TIMER_TOKEN    控制口令（默认随机生成）
@@ -44,18 +52,62 @@ if [ "$NODE_MAJOR" -lt 22 ]; then
 fi
 echo "Node $(node -v) OK"
 
-echo "== 2/6 下载脚本与 systemd 单元 =="
+echo "== 2/6 准备文件 =="
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
-for f in live-timer.mjs live-timer.service live-timer.config.example.json; do
-	if ! curl -fsSL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 120 \
-		-o "$TMP_DIR/$f" "$BASE/$f"; then
-		echo "❌ 下载 $f 失败：$BASE/$f（若 404，说明 Release 还未包含该文件）" >&2
+
+# 三条来路，按可靠性排序：
+#   ① SITE_LOCAL_DIR：你已经把 deploy/server/live-timer/ 拷到服务器上了（最稳）
+#   ② Release 附件：走 objects.githubusercontent.com —— 国内服务器经常 SSL unexpected eof
+#   ③ codeload 源码包：走 codeload.github.com —— 和 pull-site.sh 同一条路，一般能通
+SRC_DIR="${SITE_LOCAL_DIR:-}"
+if [ -n "$SRC_DIR" ]; then
+	if [ ! -d "$SRC_DIR" ]; then
+		echo "❌ SITE_LOCAL_DIR 不存在：$SRC_DIR" >&2
 		exit 1
 	fi
-done
-install -m 0755 "$TMP_DIR/live-timer.mjs" "$BIN"
-install -m 0644 "$TMP_DIR/live-timer.service" /etc/systemd/system/live-timer.service
+	echo "来源：本地目录 $SRC_DIR"
+fi
+
+if [ -z "$SRC_DIR" ]; then
+	mkdir -p "$TMP_DIR/fetch"
+	ok=1
+	for f in live-timer.mjs live-timer.service live-timer.config.example.json; do
+		if ! curl -fsSL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 120 \
+			-o "$TMP_DIR/fetch/$f" "$BASE/$f"; then
+			ok=0
+			echo "⚠️ Release 取 $f 失败（国内服务器常见：objects.githubusercontent.com 不通），改用源码包" >&2
+			break
+		fi
+	done
+	if [ "$ok" = "1" ]; then
+		SRC_DIR="$TMP_DIR/fetch"
+		echo "来源：Release 附件"
+	fi
+fi
+
+if [ -z "$SRC_DIR" ]; then
+	SRC_BRANCH="${SITE_BRANCH:-main}"
+	echo "来源：codeload 源码包（${SRC_BRANCH}）"
+	if ! curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 300 \
+		-o "$TMP_DIR/repo.tgz" "https://codeload.github.com/${REPO}/tar.gz/refs/heads/${SRC_BRANCH}"; then
+		echo "❌ 源码包也拉不下来。最省事的办法是从你电脑上传过去：" >&2
+		echo "   scp -r deploy/server/live-timer root@<这台服务器>:/tmp/lt" >&2
+		echo "   sudo SITE_LOCAL_DIR=/tmp/lt/live-timer bash /tmp/lt/live-timer/install-live-timer.sh" >&2
+		exit 1
+	fi
+	mkdir -p "$TMP_DIR/repo"
+	tar -xzf "$TMP_DIR/repo.tgz" -C "$TMP_DIR/repo" --strip-components=1
+	SRC_DIR="$TMP_DIR/repo/deploy/server/live-timer"
+fi
+
+if [ ! -f "$SRC_DIR/live-timer.mjs" ]; then
+	echo "❌ $SRC_DIR 里没有 live-timer.mjs（目录不对？）" >&2
+	exit 1
+fi
+
+install -m 0755 "$SRC_DIR/live-timer.mjs" "$BIN"
+install -m 0644 "$SRC_DIR/live-timer.service" /etc/systemd/system/live-timer.service
 
 echo "== 3/6 写配置 =="
 mkdir -p "$CONF_DIR" "$WEB_ROOT/api"
@@ -66,7 +118,7 @@ else
 	sed -e "s#1750753391#${ROOM_ID}#g" \
 		-e "s#/var/www/myqian-bao.top#${WEB_ROOT}#g" \
 		-e "s#换成你自己的长口令#${TOKEN}#" \
-		"$TMP_DIR/live-timer.config.example.json" >"$CONF_FILE"
+		"$SRC_DIR/live-timer.config.example.json" >"$CONF_FILE"
 	chown root:"$WEB_USER" "$CONF_FILE"
 	chmod 0640 "$CONF_FILE"
 	echo "已生成 $CONF_FILE（控制口令：$TOKEN）"

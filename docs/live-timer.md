@@ -24,6 +24,21 @@ sudo bash /tmp/live-timer-install.sh
 
 脚本会：检查 Node ≥ 22 → 装 `/usr/local/bin/live-timer.mjs` 和 systemd 服务 → 生成 `/etc/live-timer/config.json`（随机控制口令）→ 试连一次弹幕 → 启动服务 → 验证 `api/live-timer.json` 是否写出来了。
 
+> **国内服务器报 `curl: (56) OpenSSL SSL_read: ... unexpected eof`？**
+> Release 附件走 `objects.githubusercontent.com`，国内经常连不通（重试几次可能又通了）。
+> 安装脚本内置三层兜底：`SITE_LOCAL_DIR` → Release → `codeload` 源码包，所以可以绕开它：
+>
+> ```bash
+> # 方式 A：从自己的电脑把四个文件传上去（最快，总共约 40 KB）
+> scp -r deploy/server/live-timer root@<服务器IP>:/tmp/lt
+> sudo SITE_LOCAL_DIR=/tmp/lt/live-timer bash /tmp/lt/live-timer/install-live-timer.sh
+>
+> # 方式 B：走 codeload（和 pull-site.sh 同一条路；站点能自动更新就说明这条通）
+> curl -fsSL --retry 4 -o /tmp/repo.tgz https://codeload.github.com/Fire0King/Fire0King.github.io/tar.gz/refs/heads/main
+> mkdir -p /tmp/repo && tar -xzf /tmp/repo.tgz -C /tmp/repo --strip-components=1
+> sudo SITE_LOCAL_DIR=/tmp/repo/deploy/server/live-timer bash /tmp/repo/deploy/server/live-timer/install-live-timer.sh
+> ```
+
 常用命令：
 
 ```bash
