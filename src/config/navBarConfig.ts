@@ -85,6 +85,13 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 		],
 	});
 
+	// 直播加时配置（一级菜单：夹在「我的」和「关于」之间）
+	links.push({
+		name: "直播配置",
+		url: "/live-timer/config/",
+		icon: "material-symbols:tune",
+	});
+
 	// 关于及其子菜单
 	links.push({
 		name: "关于",

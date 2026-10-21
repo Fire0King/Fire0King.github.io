@@ -138,5 +138,9 @@ jobs:
             deploy/server/live-status-poller.service \
             deploy/server/live-status-poller.timer \
             deploy/server/install-poller.sh \
+            deploy/server/live-timer/live-timer.mjs \
+            deploy/server/live-timer/live-timer.service \
+            deploy/server/live-timer/live-timer.config.example.json \
+            deploy/server/live-timer/install-live-timer.sh \
             --clobber
           echo "附件地址：https://github.com/${{ github.repository }}/releases/download/site-latest/site.tar.gz"

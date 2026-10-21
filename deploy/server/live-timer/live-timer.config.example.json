@@ -1,0 +1,26 @@
+{
+	"roomId": 1750753391,
+	"host": "127.0.0.1",
+	"port": 8848,
+	"adminToken": "换成你自己的长口令",
+	"outFile": "/var/www/myqian-bao.top/api/live-timer.json",
+	"stateFile": "/var/lib/live-timer/state.json",
+	"cookie": "",
+
+	"initialMinutes": 120,
+	"paused": false,
+	"ignoreSilverGifts": true,
+	"cnyToMinutes": 1,
+	"priceUnit": 1000,
+
+	"gifts": {
+		"小心心": 0
+	},
+	"guards": { "1": 30, "2": 60, "3": 120 },
+
+	"caps": {
+		"perGiftMinutes": 60,
+		"perUserPerMinute": 10,
+		"totalMinutes": 480
+	}
+}

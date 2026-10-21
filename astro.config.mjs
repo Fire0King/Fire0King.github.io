@@ -265,6 +265,10 @@ export default defineConfig({
 				if (pathname.endsWith("/live/") && !siteConfig.pages.liveReport) {
 					return false;
 				}
+				// 直播倒计时叠层是给 OBS 抓的工具页，不进搜索/sitemap
+				if (pathname.endsWith("/live-timer/")) {
+					return false;
+				}
 				if (pathname === "/bangumi/" && !siteConfig.pages.bangumi) {
 					return false;
 				}

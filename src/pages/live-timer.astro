@@ -1,0 +1,36 @@
+---
+/**
+ * 直播礼物加时 · OBS 倒计时叠层
+ *
+ * 独立页面（不进博客布局），背景透明，专门给 OBS 的「浏览器源」用：
+ *   https://你的域名/live-timer/?scale=1&pos=bl
+ *
+ * 数据来自服务端不断刷新的 /api/live-timer.json（同源，静态站也能用）。
+ * 参数说明见页面底部注释与 docs/live-timer.md。
+ */
+import CountdownOverlay from "@components/pages/live-timer/CountdownOverlay.svelte";
+---
+
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="robots" content="noindex, nofollow" />
+		<title>直播倒计时叠层</title>
+		<style is:global>
+			html,
+			body {
+				margin: 0;
+				padding: 0;
+				width: 100%;
+				height: 100%;
+				overflow: hidden;
+				background: transparent;
+			}
+		</style>
+	</head>
+	<body>
+		<CountdownOverlay client:load />
+	</body>
+</html>
