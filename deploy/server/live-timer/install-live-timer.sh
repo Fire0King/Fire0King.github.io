@@ -31,9 +31,9 @@ ROOM_ID="${LIVE_TIMER_ROOM_ID:-1750753391}"
 CONF_DIR=/etc/live-timer
 DATA_DIR=/var/lib/live-timer
 # 运行配置放在 /var/lib/live-timer：服务以 www-data 运行，网页保存时能原子改写它
-# /etc/live-timer 只放口令（admin.json，root:www-data 0640，网页改不了它）
+# 口令也放 /var/lib/live-timer（网页上能改口令）；www-data 持有 0600
 CONF_FILE="$DATA_DIR/config.json"
-ADMIN_FILE="$CONF_DIR/admin.json"
+ADMIN_FILE="$DATA_DIR/admin.json"
 BIN=/usr/local/bin/live-timer.mjs
 OUT_FILE="$WEB_ROOT/api/live-timer.json"
 
@@ -114,7 +114,8 @@ install -m 0755 "$SRC_DIR/live-timer.mjs" "$BIN"
 install -m 0644 "$SRC_DIR/live-timer.service" /etc/systemd/system/live-timer.service
 
 echo "== 3/7 写配置 =="
-mkdir -p "$CONF_DIR" "$DATA_DIR" "$WEB_ROOT/api"`nchown "$WEB_USER":"$WEB_USER" "$DATA_DIR" 2>/dev/null || true
+mkdir -p "$CONF_DIR" "$DATA_DIR" "$WEB_ROOT/api"
+chown "$WEB_USER":"$WEB_USER" "$DATA_DIR" 2>/dev/null || true
 if [ -f "$CONF_FILE" ]; then
 	echo "已存在 $CONF_FILE，保留不动（要改：sudo nano $CONF_FILE）"
 else
@@ -149,8 +150,8 @@ if [ -f "$ADMIN_FILE" ]; then
 	echo "已存在 $ADMIN_FILE，保留（要改：sudo node $BIN --config $CONF_FILE --set-password）"
 else
 	node "$BIN" --config "$CONF_FILE" --set-password >/tmp/.lt-pw 2>&1 || true
-	chown root:"$WEB_USER" "$ADMIN_FILE" 2>/dev/null || true
-	chmod 0640 "$ADMIN_FILE" 2>/dev/null || true
+	chown "$WEB_USER":"$WEB_USER" "$ADMIN_FILE" 2>/dev/null || true
+	chmod 0600 "$ADMIN_FILE" 2>/dev/null || true
 	grep -o '网页登录口令：.*' /tmp/.lt-pw 2>/dev/null || cat /tmp/.lt-pw 2>/dev/null
 	rm -f /tmp/.lt-pw
 	echo "（上面这串口令就是网页 ${REPO##*/} 站点 /live-timer/config/ 的登录口令）"

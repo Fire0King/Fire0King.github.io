@@ -108,7 +108,9 @@ function verifyPassword(password, stored) {
 			p: Number(p),
 			maxmem: 64 * 1024 * 1024,
 		});
-		return actual.length === expected.length && timingSafeEqual(actual, expected);
+		return (
+			actual.length === expected.length && timingSafeEqual(actual, expected)
+		);
 	} catch {
 		return false;
 	}
@@ -143,16 +145,6 @@ function verifySession(secret, token) {
 
 /* ------------------------------------------------------------------ 可在线编辑的配置 */
 
-const EDITABLE_KEYS = [
-	"roomId",
-	"initialMinutes",
-	"cnyToMinutes",
-	"ignoreSilverGifts",
-	"gifts",
-	"guards",
-	"caps",
-];
-
 function pickEditable(config) {
 	return {
 		roomId: config.roomId,
@@ -184,7 +176,8 @@ function normalizeEditable(raw) {
 	let count = 0;
 	for (const [key, value] of Object.entries(rawGifts)) {
 		const name = String(key).trim();
-		if (!name || name.length > 40 || /[\u0000-\u001f]/.test(name)) continue;
+		const hasControlChar = [...name].some((ch) => ch.charCodeAt(0) < 32);
+		if (!name || name.length > 40 || hasControlChar) continue;
 		const minutes = Number(value);
 		if (!Number.isFinite(minutes) || minutes < 0) continue;
 		gifts[name] = Math.round(Math.min(1440, minutes) * 10) / 10;
@@ -207,10 +200,7 @@ function normalizeEditable(raw) {
 				1440,
 				Math.max(1, Math.round(Number(raw.initialMinutes) || 120)),
 			),
-			cnyToMinutes: Math.min(
-				600,
-				Math.max(0, Number(raw.cnyToMinutes) || 0),
-			),
+			cnyToMinutes: Math.min(600, Math.max(0, Number(raw.cnyToMinutes) || 0)),
 			ignoreSilverGifts: raw.ignoreSilverGifts !== false,
 			gifts,
 			guards: { 1: guardOf(1), 2: guardOf(2), 3: guardOf(3) },
@@ -235,9 +225,10 @@ const DEFAULT_CONFIG = {
 	adminToken: "",
 	/**
 	 * 网页端登录用的口令与签名密钥（只有哈希和随机密钥，不存明文）。
-	 * 由 `node live-timer.mjs --set-password` 生成，权限 0640 root:www-data。
+	 * 放在 /var/lib/live-timer（服务以 www-data 运行，网页上改口令时能原子写入）；
+	 * 由 `node live-timer.mjs --set-password` 初始化。
 	 */
-	adminFile: "/etc/live-timer/admin.json",
+	adminFile: "/var/lib/live-timer/admin.json",
 	/** 状态输出的 JSON 路径 */
 	outFile: "/var/www/site/api/live-timer.json",
 	/** 进程重启后恢复计时用的状态文件 */
@@ -947,7 +938,8 @@ async function selfTest(config) {
 	check("真实房间号（>10 亿）能通过校验", okRoom.ok === true);
 	check(
 		"非法房间号被拒",
-		normalizeEditable({ roomId: 0, gifts: {}, guards: {}, caps: {} }).ok === false,
+		normalizeEditable({ roomId: 0, gifts: {}, guards: {}, caps: {} }).ok ===
+			false,
 	);
 	const trimmed = normalizeEditable({
 		roomId: 1,
@@ -1342,7 +1334,8 @@ async function main() {
 			if (!admin?.passwordHash || !admin?.sessionSecret) {
 				jsonPlain(res, 503, {
 					ok: false,
-					error: "服务端还没设置口令，先在服务器上执行：node /usr/local/bin/live-timer.mjs --set-password",
+					error:
+						"服务端还没设置口令，先在服务器上执行：node /usr/local/bin/live-timer.mjs --set-password",
 				});
 				return;
 			}
@@ -1431,6 +1424,76 @@ async function main() {
 				return;
 			}
 			jsonPlain(res, 405, { ok: false, error: "只支持 GET / PUT" });
+			return;
+		}
+
+		if (req.method === "POST" && url.pathname === "/admin/password") {
+			const auth = await adminAuth(req);
+			if (!auth.ok) {
+				jsonPlain(res, auth.code, { ok: false, error: auth.error });
+				return;
+			}
+			let payload = {};
+			try {
+				payload = JSON.parse((await readBody(req)) || "{}");
+			} catch {
+				jsonPlain(res, 400, { ok: false, error: "请求体不是 JSON" });
+				return;
+			}
+			const current = String(payload.currentPassword ?? "");
+			const next = String(payload.newPassword ?? "");
+			const admin = await loadAdmin();
+			if (!admin?.passwordHash) {
+				jsonPlain(res, 503, { ok: false, error: "服务端还没设置口令" });
+				return;
+			}
+			const ip = clientIp(req);
+			if (!current || !verifyPassword(current, admin.passwordHash)) {
+				recordFail(ip);
+				log(`🔒 改口令失败：当前口令不对（${ip}）`);
+				jsonPlain(res, 401, { ok: false, error: "当前口令不对" });
+				return;
+			}
+			if (next.length < 6) {
+				jsonPlain(res, 400, { ok: false, error: "新口令至少 6 位" });
+				return;
+			}
+			if (next.length > 200) {
+				jsonPlain(res, 400, { ok: false, error: "新口令太长了（≤ 200 字符）" });
+				return;
+			}
+			if (next === current) {
+				jsonPlain(res, 400, { ok: false, error: "新口令不能和当前口令一样" });
+				return;
+			}
+			// 换口令的同时换签名密钥：之前发出去的所有会话立即失效，
+			// 只给当前这个浏览器发一个新令牌，所以不会把自己踢下线
+			const sessionSecret = randomBytes(32).toString("base64");
+			const updated = {
+				passwordHash: hashPassword(next),
+				sessionSecret,
+				updatedAt: new Date().toISOString(),
+			};
+			try {
+				await writeJsonAtomic(adminPath, updated);
+				await chmod(adminPath, 0o600).catch(() => {});
+			} catch (err) {
+				log(`⚠️ 写口令文件失败：${err.message}`);
+				jsonPlain(res, 500, { ok: false, error: `写入失败：${err.message}` });
+				return;
+			}
+			loginRate.delete(ip);
+			const { token, exp } = signSession(
+				sessionSecret,
+				Date.now() + SESSION_TTL_MS,
+			);
+			log(`🔑 网页口令已更新（${ip}）`);
+			jsonPlain(res, 200, {
+				ok: true,
+				token,
+				exp,
+				changedAt: updated.updatedAt,
+			});
 			return;
 		}
 

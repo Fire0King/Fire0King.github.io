@@ -102,6 +102,13 @@ let saveMsg = $state("");
 let saveError = $state("");
 let runtime = $state<RuntimeInfo | null>(null);
 
+let currentPwd = $state("");
+let newPwd = $state("");
+let confirmPwd = $state("");
+let pwdBusy = $state(false);
+let pwdMsg = $state("");
+let pwdBad = $state(false);
+
 const runtimeLabel = $derived.by(() => {
 	if (!runtime) return "状态未知";
 	const parts = [runtime.connected ? "弹幕已连接" : "弹幕未连接"];
@@ -287,6 +294,62 @@ async function saveToServer(): Promise<void> {
 		saveError = err instanceof Error ? err.message : String(err);
 	} finally {
 		saveBusy = false;
+	}
+}
+
+async function changePassword(): Promise<void> {
+	if (pwdBusy) return;
+	pwdBad = false;
+	pwdMsg = "";
+	if (newPwd !== confirmPwd) {
+		pwdBad = true;
+		pwdMsg = "两次输入的新口令不一致";
+		return;
+	}
+	if (newPwd.length < 6) {
+		pwdBad = true;
+		pwdMsg = "新口令至少 6 位";
+		return;
+	}
+	pwdBusy = true;
+	try {
+		const res = await fetch(`${apiBase}/admin/password`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify({
+				currentPassword: currentPwd,
+				newPassword: newPwd,
+			}),
+		});
+		const data = (await res.json().catch(() => ({}))) as {
+			ok?: boolean;
+			token?: string;
+			error?: string;
+		};
+		if (!res.ok || !data.ok) {
+			if (res.status === 401) logout();
+			throw new Error(data.error ?? `HTTP ${res.status}`);
+		}
+		if (data.token) {
+			token = data.token;
+			try {
+				sessionStorage.setItem("live-timer-token", data.token);
+			} catch {
+				// ignore
+			}
+		}
+		currentPwd = "";
+		newPwd = "";
+		confirmPwd = "";
+		pwdMsg = "已更新，下次登录用新口令";
+	} catch (err) {
+		pwdBad = true;
+		pwdMsg = err instanceof Error ? err.message : String(err);
+	} finally {
+		pwdBusy = false;
 	}
 }
 
@@ -569,6 +632,35 @@ function downloadConfig(): void {
 				</div>
 				<p class="hint">单位都是分钟；填 0 表示不限制。整场总量建议一定要设，不然一场能被加到天亮。</p>
 			</section>
+
+			<section class="panel">
+				<details class="pwd">
+					<summary>修改网页登录口令</summary>
+					<p class="hint">
+						改完会同时更换签名密钥：其它设备/浏览器上的登录立刻失效，当前这个页面会自动续上新令牌。
+					</p>
+					<div class="pwd-form">
+						<label>
+							<span>当前口令</span>
+							<input type="password" bind:value={currentPwd} autocomplete="current-password" />
+						</label>
+						<label>
+							<span>新口令（至少 6 位）</span>
+							<input type="password" bind:value={newPwd} autocomplete="new-password" />
+						</label>
+						<label>
+							<span>再输一次</span>
+							<input type="password" bind:value={confirmPwd} autocomplete="new-password" />
+						</label>
+					</div>
+					<div class="pwd-actions">
+						<button type="button" class="primary" onclick={changePassword} disabled={pwdBusy}>
+							{pwdBusy ? "提交中…" : "保存新口令"}
+						</button>
+						{#if pwdMsg}<span class="pwd-msg" class:bad={pwdBad}>{pwdMsg}</span>{/if}
+					</div>
+				</details>
+			</section>
 			{:else}
 			<section class="panel login">
 				<h3>需要口令</h3>
@@ -788,6 +880,70 @@ function downloadConfig(): void {
 
 	.advanced summary:hover {
 		color: var(--primary);
+	}
+
+	.pwd summary {
+		cursor: pointer;
+		font-size: 0.9rem;
+		font-weight: 700;
+		color: var(--deep-text);
+	}
+
+	.pwd summary:hover {
+		color: var(--primary);
+	}
+
+	.pwd-form {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 0.6rem;
+		margin-top: 0.6rem;
+	}
+
+	@media (max-width: 720px) {
+		.pwd-form {
+			grid-template-columns: minmax(0, 1fr);
+		}
+	}
+
+	.pwd-form label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		font-size: 0.78rem;
+		color: var(--content-meta);
+	}
+
+	.pwd-form label > span {
+		font-weight: 600;
+	}
+
+	.pwd-form input {
+		width: 100%;
+		padding: 0.42rem 0.6rem;
+		border: 1px solid var(--line-divider);
+		border-radius: 0.55rem;
+		background-color: var(--btn-regular-bg);
+		color: var(--deep-text);
+		font: inherit;
+		font-size: 0.85rem;
+		box-sizing: border-box;
+	}
+
+	.pwd-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		margin-top: 0.7rem;
+	}
+
+	.pwd-msg {
+		font-size: 0.76rem;
+		color: #22c55e;
+	}
+
+	.pwd-msg.bad {
+		color: #f43f5e;
 	}
 
 	.panels {

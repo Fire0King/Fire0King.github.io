@@ -60,7 +60,7 @@ node /usr/local/bin/live-timer.mjs --config /var/lib/live-timer/config.json --se
 
 ## 2. 配置说明
 
-配置文件在 /var/lib/live-timer/config.json（属主 www-data，网页保存时由服务原子改写）；口令在 /etc/live-timer/admin.json（root:www-data 0640，网页改不了）。
+配置文件在 /var/lib/live-timer/config.json（属主 www-data，网页保存时由服务原子改写）；口令在 /var/lib/live-timer/admin.json（www-data 0600）。
 
 ```jsonc
 {
@@ -147,20 +147,25 @@ https://myqian-bao.top/live-timer/?pos=br&scale=1.2&label=今天还能播
 
 | 项 | 做法 |
 | --- | --- |
-| 口令存储 | 只存 scrypt 哈希（`/etc/live-timer/admin.json`，`0640 root:www-data`），不可逆推，网页拿不到明文 |
+| 口令存储 | 只存 scrypt 哈希（`/var/lib/live-timer/admin.json`，`0600 www-data`），不可逆推，网页拿不到明文 |
 | 登录态 | 登录后发一个 HMAC 签名令牌（8 小时），之后请求带 `Authorization: Bearer`；令牌过期或伪造一律 401 |
 | 爆破防护 | 同一 IP 10 分钟内错 5 次锁 5 分钟（锁定期内正确口令也进不去），失败会写日志 |
 | 写入范围 | 只接受白名单字段（`roomId` / `initialMinutes` / `cnyToMinutes` / `ignoreSilverGifts` / `gifts` / `guards` / `caps`），`outFile`、`stateFile`、`adminToken` 这类字段即使传了也会被忽略 |
+| 改口令 | 登录后页面里「修改网页登录口令」：填当前口令 + 新口令即可；改完会换签名密钥，**其它设备上的登录立刻失效**，当前页面自动续约 |
 | 传输 | 只走 HTTPS（nginx 443）；管理接口不返回 CORS 头，跨站脚本读不到 |
 
-设置/重置口令（在服务器上）：
+口令两种改法：
+
+1. **网页上改（推荐）**：登录 → 展开「修改网页登录口令」→ 填当前口令、新口令（≥6 位，可用中文）、再输一次 → 保存。
+2. **服务器上改（忘记口令时用）**：
 
 ```bash
-node /usr/local/bin/live-timer.mjs --config /var/lib/live-timer/config.json --set-password
-# 不给参数 = 随机生成并打印；也可以 --set-password 你的口令（≥6 位）
+sudo node /usr/local/bin/live-timer.mjs --config /var/lib/live-timer/config.json --set-password 你的新口令
+# 不给参数 = 随机生成并打印
+chown www-data:www-data /var/lib/live-timer/admin.json && chmod 0600 /var/lib/live-timer/admin.json
 ```
 
-改完不用重启，下一次登录就用新口令。忘记口令也用它重置。
+两种方式都不用重启服务，下一次登录就用新口令。
 
 ### 网页控制台（可选）
 
