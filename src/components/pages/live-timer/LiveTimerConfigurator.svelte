@@ -109,6 +109,11 @@ let pwdBusy = $state(false);
 let pwdMsg = $state("");
 let pwdBad = $state(false);
 
+let ctlBusy = $state(false);
+let ctlMsg = $state("");
+let ctlBad = $state(false);
+let customMinutes = $state(10);
+
 const runtimeLabel = $derived.by(() => {
 	if (!runtime) return "状态未知";
 	const parts = [runtime.connected ? "弹幕已连接" : "弹幕未连接"];
@@ -294,6 +299,55 @@ async function saveToServer(): Promise<void> {
 		saveError = err instanceof Error ? err.message : String(err);
 	} finally {
 		saveBusy = false;
+	}
+}
+
+/** 时间控制：重新开局 / 暂停 / 继续 / 加减时，用登录态调服务端 /control */
+async function control(action: string, minutes?: number): Promise<void> {
+	if (ctlBusy) return;
+	ctlBusy = true;
+	ctlBad = false;
+	ctlMsg = "";
+	try {
+		const res = await fetch(`${apiBase}/control`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify({ action, minutes }),
+		});
+		const data = (await res.json().catch(() => ({}))) as {
+			ok?: boolean;
+			error?: string;
+			state?: Partial<RuntimeInfo>;
+		};
+		if (res.status === 401 || res.status === 403) {
+			logout();
+			throw new Error(data.error ?? "登录已过期，请重新输入口令");
+		}
+		if (!res.ok || !data.ok)
+			throw new Error(data.error ?? `HTTP ${res.status}`);
+		if (data.state) {
+			runtime = {
+				roomId: Number(data.state.roomId) || 0,
+				connected: Boolean(data.state.connected),
+				reason: String(data.state.reason ?? ""),
+				remainingMs: Number(data.state.remainingMs) || 0,
+				paused: Boolean(data.state.paused),
+				giftCount: Number(data.state.giftCount) || 0,
+				addedMs: Number(data.state.addedMs) || 0,
+			};
+		}
+		if (action === "start") ctlMsg = "已重新开局";
+		else if (action === "pause") ctlMsg = "已暂停";
+		else if (action === "resume") ctlMsg = "已继续";
+		else ctlMsg = `已${action === "add" ? "加" : "减"} ${minutes ?? 0} 分钟`;
+	} catch (err) {
+		ctlBad = true;
+		ctlMsg = err instanceof Error ? err.message : String(err);
+	} finally {
+		ctlBusy = false;
 	}
 }
 
@@ -547,6 +601,43 @@ function downloadConfig(): void {
 	<div class="panels">
 		<div class="form">
 			{#if loggedIn}
+			<section class="panel">
+				<h3>时间控制</h3>
+				<p class="hint">
+					当前：<strong>{runtimeLabel}</strong>。点按钮即时生效，不用刷新。
+					「重新开局」会用下面设置的「开局时长」。
+				</p>
+				<div class="ctl-grid">
+					<button type="button" class="primary" onclick={() => control("start")} disabled={ctlBusy}>
+						重新开局（{initialMinutes} 分钟）
+					</button>
+					{#if runtime?.paused}
+						<button type="button" class="ghost" onclick={() => control("resume")} disabled={ctlBusy}>
+							继续
+						</button>
+					{:else}
+						<button type="button" class="ghost" onclick={() => control("pause")} disabled={ctlBusy}>
+							暂停
+						</button>
+					{/if}
+					<button type="button" class="ghost" onclick={() => control("add", 1)} disabled={ctlBusy}>+1 分</button>
+					<button type="button" class="ghost" onclick={() => control("add", 5)} disabled={ctlBusy}>+5 分</button>
+					<button type="button" class="ghost" onclick={() => control("sub", 1)} disabled={ctlBusy}>−1 分</button>
+					<button type="button" class="ghost" onclick={() => control("sub", 5)} disabled={ctlBusy}>−5 分</button>
+				</div>
+				<div class="ctl-custom">
+					<input type="number" min="1" max="600" bind:value={customMinutes} />
+					<span class="unit">分钟</span>
+					<button type="button" class="ghost" onclick={() => control("add", Number(customMinutes))} disabled={ctlBusy}>
+						加
+					</button>
+					<button type="button" class="ghost" onclick={() => control("sub", Number(customMinutes))} disabled={ctlBusy}>
+						减
+					</button>
+					{#if ctlMsg}<span class="ctl-msg" class:bad={ctlBad}>{ctlMsg}</span>{/if}
+				</div>
+			</section>
+
 			<section class="panel">
 				<h3>直播与时长</h3>
 				<div class="grid">
@@ -943,6 +1034,51 @@ function downloadConfig(): void {
 	}
 
 	.pwd-msg.bad {
+		color: #f43f5e;
+	}
+
+	.ctl-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+		gap: 0.5rem;
+		margin-top: 0.7rem;
+	}
+
+	.ctl-grid button {
+		justify-content: center;
+	}
+
+	.ctl-custom {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		flex-wrap: wrap;
+		margin-top: 0.6rem;
+	}
+
+	.ctl-custom input {
+		width: 5.5rem;
+		padding: 0.35rem 0.55rem;
+		border: 1px solid var(--line-divider);
+		border-radius: 0.5rem;
+		background-color: var(--btn-regular-bg);
+		color: var(--deep-text);
+		font: inherit;
+		font-size: 0.82rem;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.unit {
+		font-size: 0.74rem;
+		color: var(--content-meta);
+	}
+
+	.ctl-msg {
+		font-size: 0.76rem;
+		color: #22c55e;
+	}
+
+	.ctl-msg.bad {
 		color: #f43f5e;
 	}
 

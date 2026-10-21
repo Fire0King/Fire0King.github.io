@@ -1498,8 +1498,14 @@ async function main() {
 		}
 
 		if (req.method === "POST" && url.pathname === "/control") {
-			if (!authorized(req)) {
-				json(res, 403, { ok: false, error: "口令不对（x-timer-token）" });
+			// 两种身份都放行：老的控制口令（x-timer-token / 本机调用），
+			// 或网页登录态（Authorization: Bearer 会话令牌，配置页的按钮用它）
+			const controlAuth = authorized(req) ? { ok: true } : await adminAuth(req);
+			if (!controlAuth.ok) {
+				json(res, 403, {
+					ok: false,
+					error: controlAuth.error ?? "口令不对（x-timer-token）",
+				});
 				return;
 			}
 			let body = "";
