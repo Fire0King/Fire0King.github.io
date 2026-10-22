@@ -235,6 +235,8 @@ const DEFAULT_CONFIG = {
 	stateFile: "/var/lib/live-timer/state.json",
 	/** 可选：SESSDATA 等 cookie，用于拿到部分只在登录态下推送的礼物事件 */
 	cookie: "",
+	/** 调试模式：把收到的每条礼物（含被过滤的原因）都打进日志，排查「送礼没加时」用 */
+	debug: false,
 	/** 初始时长（分钟） */
 	initialMinutes: 120,
 	/** 启动时是否处于暂停 */
@@ -542,6 +544,8 @@ class DanmakuClient {
 		this.buvid = "";
 		this.wbiKey = "";
 		this.wbiAt = 0;
+		/** 最近一次收到心跳回包的时间，用来判断连接是不是已经半死 */
+		this.lastBeatAt = 0;
 	}
 
 	headers(roomId) {
@@ -721,11 +725,26 @@ class DanmakuClient {
 					}),
 				);
 				ws.send(buildPacket(auth, OP.AUTH));
+				this.lastBeatAt = Date.now();
 				heartbeat = setInterval(() => {
 					try {
 						ws.send(buildPacket(Buffer.alloc(0), OP.HEARTBEAT));
 					} catch {
 						// 连接已断，等 close 事件收尾
+					}
+					// 看门狗：B 站每 30 秒会回一个 op=3 心跳包。连着发却收不到回包，
+					// 说明连接其实已经半死（TCP 还在、对端不再推送），必须主动断开重连，
+					// 否则进程看着 connected=true，实际一条礼物也收不到。
+					const silent = Date.now() - this.lastBeatAt;
+					if (silent > 90_000) {
+						log(
+							`💔 心跳 ${Math.round(silent / 1000)} 秒没回包，连接已失效，重连`,
+						);
+						try {
+							ws.close();
+						} catch {
+							// ignore
+						}
 					}
 				}, 30_000);
 			});
@@ -756,11 +775,14 @@ class DanmakuClient {
 			} else if (frame.protover === 3) {
 				this.handleBuffer(brotliDecompressSync(frame.body));
 			} else if (frame.op === OP.NOTIFY) {
+				this.lastBeatAt = Date.now();
 				try {
 					this.onCommand(JSON.parse(frame.body.toString("utf8")));
 				} catch {
 					// 单条解析失败忽略，不要影响整条流
 				}
+			} else if (frame.op === OP.HEARTBEAT_REPLY) {
+				this.lastBeatAt = Date.now();
 			} else if (frame.op === OP.AUTH_REPLY) {
 				let code = 0;
 				try {
@@ -769,8 +791,12 @@ class DanmakuClient {
 					// ignore
 				}
 				if (code === 0) {
+					this.lastBeatAt = Date.now();
 					log(`✅ 已连上直播间 ${this.roomId ?? this.config.roomId} 的弹幕流`);
-					this.onStatus?.({ connected: true });
+					this.onStatus?.({
+						connected: true,
+						liveStatus: this.liveStatus ?? null,
+					});
 				} else {
 					this.onStatus?.({
 						connected: false,
@@ -1084,12 +1110,29 @@ async function main() {
 
 	function onCommand(cmd) {
 		const data = cmd?.data ?? {};
+		const debug = Boolean(config.debug);
 		switch (cmd?.cmd) {
 			case "SEND_GIFT": {
 				const signature = `${data.uid}:${data.giftId}:${data.timestamp}:${data.combo_num ?? ""}:${data.num}`;
-				if (state.seenRecently(signature)) return;
+				if (state.seenRecently(signature)) {
+					if (debug) log(`🔍 重复投递，跳过：${data.giftName} ×${data.num}`);
+					return;
+				}
 				let ms = giftToMs(config, data);
-				if (ms <= 0) return;
+				if (debug) {
+					log(
+						`🔍 收到礼物 ${data.uname ?? "?"} ${data.giftName ?? "?"} ×${data.num} ` +
+							`coin=${data.coin_type} price=${data.price} giftId=${data.giftId} → ${(ms / 60_000).toFixed(2)} 分钟`,
+					);
+				}
+				if (ms <= 0) {
+					if (debug) {
+						log(
+							`🔍 该礼物不加时（coin=${data.coin_type}，免费礼物过滤=${config.ignoreSilverGifts}，未命中 gifts 表，或 cnyToMinutes=${config.cnyToMinutes}）`,
+						);
+					}
+					return;
+				}
 				const userLeft = state.userBudgetLeftMs(data.uid);
 				if (userLeft <= 0) {
 					log(`⏳ ${data.uname} 触发单人限速，本次礼物不加时`);
@@ -1108,6 +1151,11 @@ async function main() {
 			}
 			case "GUARD_BUY": {
 				const ms = guardToMs(config, data);
+				if (debug) {
+					log(
+						`🔍 收到大航海 ${data.username ?? "?"} guard_level=${data.guard_level} ×${data.num} → ${(ms / 60_000).toFixed(2)} 分钟`,
+					);
+				}
 				if (ms > 0) {
 					grant(ms, {
 						kind: "guard",
@@ -1120,6 +1168,11 @@ async function main() {
 			}
 			case "SUPER_CHAT_MESSAGE": {
 				const ms = superChatToMs(config, data);
+				if (debug) {
+					log(
+						`🔍 收到醒目留言 ${data.user_info?.uname ?? "?"} ¥${data.price} → ${(ms / 60_000).toFixed(2)} 分钟`,
+					);
+				}
 				if (ms > 0) {
 					grant(ms, {
 						kind: "superchat",
@@ -1592,6 +1645,9 @@ async function main() {
 		runtime.connected = Boolean(status.connected);
 		if (status.connected) {
 			runtime.reason = "已连接";
+			if (status.liveStatus !== undefined) {
+				runtime.liveStatus = status.liveStatus;
+			}
 			return;
 		}
 		if (status.reason) {
