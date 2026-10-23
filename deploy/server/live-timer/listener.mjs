@@ -10,7 +10,7 @@
  * 启动：node listener.mjs
  */
 
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 
 import { BiliLive } from "bili-live-listener";
@@ -144,8 +144,33 @@ async function main() {
 		);
 	}
 
+	// 配置被网页改过（比如换了 cookie）就自动重启，省得每次进服务器
+	let configStamp = 0;
+	try {
+		configStamp = (await stat(MAIN_CONFIG)).mtimeMs;
+	} catch {
+		configStamp = 0;
+	}
+	setInterval(async () => {
+		try {
+			const stamp = (await stat(MAIN_CONFIG)).mtimeMs;
+			if (stamp !== configStamp) {
+				log("🔄 检测到配置更新，退出以让 systemd 重启（新 cookie 立刻生效）");
+				process.exit(0);
+			}
+		} catch {
+			// 文件暂时读不到就忽略
+		}
+	}, 20_000);
+
 	const { token, uid } = await getToken(roomId, cookie);
-	log(`🔐 登录态就绪：uid=${uid}，房号=${roomId}，key 长度=${token.length}`);
+	if (!uid) {
+		log(
+			"⚠️ 这次没拿到 uid（cookie 可能已失效）：B 站只会稀疏推送，礼物很可能收不到；请在网页「登录 Cookie」里换成新的 SESSDATA",
+		);
+	} else {
+		log(`🔐 登录态就绪：uid=${uid}，房号=${roomId}，key 长度=${token.length}`);
+	}
 
 	let stopped = false;
 	const connect = async () => {
@@ -191,6 +216,15 @@ async function main() {
 				price: data.price ?? 0,
 			});
 		});
+
+		// 关键补丁：B 站现在推的是 SEND_GIFT_V2（base64 protobuf），
+		// 这个库还是 2022 年的解析逻辑，只认旧版 SEND_GIFT。
+		// 所以把 V2 的原始数据转给计时器，由它解 protobuf。
+		if (typeof live.onRawMessage === "function") {
+			live.onRawMessage("SEND_GIFT_V2", (msg) => {
+				ingest({ type: "gift_v2", data: msg?.data ?? msg });
+			});
+		}
 
 		if (debug && typeof live.onRawMessage === "function") {
 			// 兜底：库没覆盖的事件，至少能看到 cmd 名字

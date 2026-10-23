@@ -524,9 +524,14 @@ function parseProtoFields(buf) {
  * GiftItem: 1 gift_id / 2 gift_name / 3 num / 5 price / 8 coin_type / 10 timestamp
  */
 function decodeSendGiftV2(base64) {
+	// B 站推的是 { dmscore, pb: "<base64 protobuf>" }，protobuf 在 pb 里
+	let encoded = base64;
+	if (encoded && typeof encoded === "object") {
+		encoded = encoded.pb ?? encoded.data ?? "";
+	}
 	let buf;
 	try {
-		buf = Buffer.from(String(base64 ?? ""), "base64");
+		buf = Buffer.from(String(encoded ?? ""), "base64");
 	} catch {
 		return null;
 	}
@@ -547,6 +552,7 @@ function decodeSendGiftV2(base64) {
 				price: Number(g(5)?.value ?? 0),
 				coinType: g(8)?.bytes?.toString("utf8") ?? "",
 				timestamp: Number(g(10)?.value ?? 0),
+				batchComboId: g(12)?.bytes?.toString("utf8") ?? "",
 			};
 		});
 	return { uid, uname, gifts };
@@ -1329,7 +1335,7 @@ async function main() {
 
 	/** 礼物加时的统一入口：V1（JSON）和 V2（protobuf）都走这里 */
 	function handleGift(data) {
-		const signature = `${data.uid}:${data.giftId}:${data.timestamp}:${data.combo_num ?? ""}:${data.num}`;
+		const signature = `${data.uid}:${data.giftId}:${data.timestamp}:${data.combo_num ?? data.batch_combo_id ?? ""}:${data.num}`;
 		if (state.seenRecently(signature)) {
 			if (config.debug) log(`🔍 重复投递，跳过：${data.giftName} ×${data.num}`);
 			return;
@@ -1388,6 +1394,7 @@ async function main() {
 					price: item.price,
 					coin_type: item.coinType,
 					timestamp: item.timestamp,
+					batch_combo_id: item.batchComboId,
 				});
 			}
 			return;
@@ -1829,7 +1836,34 @@ async function main() {
 			runtime.reason = "监听器推送中";
 			const kind = String(payload.type ?? "gift");
 			try {
-				if (kind === "gift") {
+				if (kind === "gift_v2") {
+					// bili-live-listener 只认旧版 SEND_GIFT；V2 是 base64 protobuf，
+					// 由监听器把原始 data 转过来，这里解包后走同一套加时逻辑
+					const parsed = decodeSendGiftV2(payload.data);
+					if (!parsed || parsed.gifts.length === 0) {
+						log(
+							`⚠️ gift_v2 解包失败：typeof=${typeof payload.data} 样本=${String(
+								typeof payload.data === "string"
+									? payload.data
+									: JSON.stringify(payload.data),
+							).slice(0, 600)}`,
+						);
+					} else {
+						for (const item of parsed.gifts) {
+							handleGift({
+								uid: parsed.uid,
+								uname: parsed.uname,
+								giftId: item.giftId,
+								giftName: item.giftName,
+								num: item.num,
+								price: item.price,
+								coin_type: item.coinType,
+								timestamp: item.timestamp,
+								batch_combo_id: item.batchComboId,
+							});
+						}
+					}
+				} else if (kind === "gift") {
 					handleGift({
 						uid: Number(payload.uid) || 0,
 						uname: String(payload.uname ?? "观众"),
