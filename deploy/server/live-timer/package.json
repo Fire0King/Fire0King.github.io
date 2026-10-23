@@ -1,0 +1,7 @@
+{
+	"name": "live-timer-listener",
+	"private": true,
+	"type": "module",
+	"description": "用 bili-live-listener 抓 B 站直播礼物，转发给 live-timer 的 /ingest",
+	"dependencies": {}
+}

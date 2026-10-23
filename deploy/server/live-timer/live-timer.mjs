@@ -244,8 +244,14 @@ const DEFAULT_CONFIG = {
 	stateFile: "/var/lib/live-timer/state.json",
 	/** 可选：SESSDATA 等 cookie，用于拿到部分只在登录态下推送的礼物事件 */
 	cookie: "",
-	/** 调试模式：把收到的每条礼物（含被过滤的原因）都打进日志，排查「送礼没加时」用 */
+	/** 调试模式：把收到的每条礼物（含被过滤的原因）都打进日志 */
 	debug: false,
+	/**
+	 * 事件来源：
+	 *   web      —— 本进程自己连 B 站弹幕（默认）
+	 *   listener —— 由外部 bili-live-listener 抓事件，POST /ingest 进来
+	 */
+	source: "web",
 	/** 初始时长（分钟） */
 	initialMinutes: 120,
 	/** 启动时是否处于暂停 */
@@ -456,6 +462,94 @@ class TimerState {
 function numberFrom(value) {
 	const n = Number(value);
 	return Number.isFinite(n) ? n : 0;
+}
+
+/* ---------------- 极简 protobuf 读取（只为解 SEND_GIFT_V2） ---------------- */
+
+function readVarint(buf, start) {
+	let result = 0;
+	let shift = 0;
+	let pos = start;
+	while (pos < buf.length) {
+		const byte = buf[pos];
+		pos += 1;
+		result += (byte & 0x7f) * 2 ** shift;
+		if ((byte & 0x80) === 0) return { value: result, pos };
+		shift += 7;
+		if (shift > 56) return null;
+	}
+	return null;
+}
+
+/** 把一段 protobuf 拆成 {field, wire, value|bytes} 列表；不认识的 wire 直接放弃 */
+function parseProtoFields(buf) {
+	const fields = [];
+	let pos = 0;
+	while (pos < buf.length) {
+		const key = readVarint(buf, pos);
+		if (!key) break;
+		pos = key.pos;
+		const field = Math.floor(key.value / 8);
+		const wire = key.value % 8;
+		if (wire === 0) {
+			const v = readVarint(buf, pos);
+			if (!v) break;
+			fields.push({ field, wire, value: v.value });
+			pos = v.pos;
+		} else if (wire === 1) {
+			if (pos + 8 > buf.length) break;
+			fields.push({ field, wire, raw: buf.subarray(pos, pos + 8) });
+			pos += 8;
+		} else if (wire === 2) {
+			const len = readVarint(buf, pos);
+			if (!len) break;
+			pos = len.pos;
+			if (pos + len.value > buf.length) break;
+			fields.push({ field, wire, bytes: buf.subarray(pos, pos + len.value) });
+			pos += len.value;
+		} else if (wire === 5) {
+			if (pos + 4 > buf.length) break;
+			fields.push({ field, wire, raw: buf.subarray(pos, pos + 4) });
+			pos += 4;
+		} else {
+			break;
+		}
+	}
+	return fields;
+}
+
+/**
+ * SEND_GIFT_V2 的 data 是 base64 编码的 protobuf（SendGiftV2）：
+ *   1 uid(int64) / 2 uname(string) / 5 guard_level / 10 repeated GiftItem
+ * GiftItem: 1 gift_id / 2 gift_name / 3 num / 5 price / 8 coin_type / 10 timestamp
+ */
+function decodeSendGiftV2(base64) {
+	let buf;
+	try {
+		buf = Buffer.from(String(base64 ?? ""), "base64");
+	} catch {
+		return null;
+	}
+	if (!buf || buf.length === 0) return null;
+	const top = parseProtoFields(buf);
+	const pick = (fields, n) => fields.find((f) => f.field === n);
+	const uid = pick(top, 1)?.value ?? 0;
+	const uname = pick(top, 2)?.bytes?.toString("utf8") ?? "";
+	const gifts = top
+		.filter((f) => f.field === 10 && f.bytes)
+		.map((f) => {
+			const item = parseProtoFields(f.bytes);
+			const g = (n) => item.find((x) => x.field === n);
+			return {
+				giftId: Number(g(1)?.value ?? 0),
+				giftName: g(2)?.bytes?.toString("utf8") ?? "",
+				num: Number(g(3)?.value ?? 1),
+				price: Number(g(5)?.value ?? 0),
+				coinType: g(8)?.bytes?.toString("utf8") ?? "",
+				timestamp: Number(g(10)?.value ?? 0),
+			};
+		});
+	return { uid, uname, gifts };
 }
 
 /** 把一条礼物事件折算成毫秒；返回 0 表示不计入 */
@@ -1019,7 +1113,27 @@ async function selfTest(config) {
 		!timer.seenRecently("x") && timer.seenRecently("x"),
 	);
 
-	console.log("4) 网页配置校验");
+	console.log("4) SEND_GIFT_V2 protobuf 解包");
+	const sampleV2 =
+		"CLlgEgzmtYvor5Xop4LkvJdSIAi88gESCeWwj+iKseiKsRgCKOgHQgRnb2xkUIDiz6oG";
+	const decodedV2 = decodeSendGiftV2(sampleV2);
+	check(
+		"能解出 uid / uname",
+		decodedV2?.uid === 12345 && decodedV2?.uname === "测试观众",
+	);
+	const g0 = decodedV2?.gifts?.[0];
+	check(
+		"能解出礼物条目（id/名称/数量/价格/币种/时间）",
+		g0?.giftId === 31036 &&
+			g0?.giftName === "小花花" &&
+			g0?.num === 2 &&
+			g0?.price === 1000 &&
+			g0?.coinType === "gold" &&
+			g0?.timestamp === 1700000000,
+	);
+	check("垃圾数据不会抛异常", decodeSendGiftV2("not-base64!!") !== undefined);
+
+	console.log("5) 网页配置校验");
 	const okRoom = normalizeEditable({
 		roomId: 1750753391,
 		initialMinutes: 120,
@@ -1165,14 +1279,23 @@ async function main() {
 	const statePath = resolve(config.stateFile);
 	const outPath = resolve(config.outFile);
 
+	/**
+	 * 事件来源：
+	 *   web      —— 本进程自己连 B 站弹幕（默认）
+	 *   listener —— 由外部的 bili-live-listener 抓事件，POST /ingest 进来
+	 */
+	const useListener = String(config.source ?? "web") === "listener";
+	const runtime = {
+		connected: demo || useListener,
+		reason: demo ? "demo" : useListener ? "等待监听器事件" : "启动中",
+		liveStatus: null,
+	};
+	/** 监听器模式：最近一次收到 ingest 的时间，用来判断「有没有在推」 */
+	let lastIngestAt = 0;
+
 	const state = demo
 		? new TimerState(config)
 		: await TimerState.load(config, statePath);
-	const runtime = {
-		connected: demo,
-		reason: demo ? "demo" : "启动中",
-		liveStatus: null,
-	};
 
 	/* ---------- 礼物事件 → 加时 ---------- */
 
@@ -1204,46 +1327,74 @@ async function main() {
 		log(`🔍 事件流：${name}`);
 	}
 
+	/** 礼物加时的统一入口：V1（JSON）和 V2（protobuf）都走这里 */
+	function handleGift(data) {
+		const signature = `${data.uid}:${data.giftId}:${data.timestamp}:${data.combo_num ?? ""}:${data.num}`;
+		if (state.seenRecently(signature)) {
+			if (config.debug) log(`🔍 重复投递，跳过：${data.giftName} ×${data.num}`);
+			return;
+		}
+		let ms = giftToMs(config, data);
+		if (config.debug) {
+			log(
+				`🔍 收到礼物 ${data.uname ?? "?"} ${data.giftName ?? "?"} ×${data.num} ` +
+					`coin=${data.coin_type} price=${data.price} giftId=${data.giftId} → ${(ms / 60_000).toFixed(2)} 分钟`,
+			);
+		}
+		if (ms <= 0) {
+			if (config.debug) {
+				log(
+					`🔍 该礼物不加时（coin=${data.coin_type}，免费礼物过滤=${config.ignoreSilverGifts}，未命中 gifts 表，或 cnyToMinutes=${config.cnyToMinutes}）`,
+				);
+			}
+			return;
+		}
+		const userLeft = state.userBudgetLeftMs(data.uid);
+		if (userLeft <= 0) {
+			log(`⏳ ${data.uname} 触发单人限速，本次礼物不加时`);
+			return;
+		}
+		ms = Math.min(ms, userLeft);
+		const applied = grant(ms, {
+			kind: "gift",
+			user: String(data.uname ?? "观众"),
+			uid: Number(data.uid) || 0,
+			label: `${data.giftName ?? "礼物"}${Number(data.num) > 1 ? ` ×${data.num}` : ""}`,
+			giftId: String(data.giftId ?? ""),
+		});
+		if (applied) state.spendUserBudget(data.uid, applied);
+	}
+
 	function onCommand(cmd) {
 		const data = cmd?.data ?? {};
 		const debug = Boolean(config.debug);
-		if (debug) sampleCmd(String(cmd?.cmd ?? "?"));
-		switch (cmd?.cmd) {
-			case "SEND_GIFT": {
-				const signature = `${data.uid}:${data.giftId}:${data.timestamp}:${data.combo_num ?? ""}:${data.num}`;
-				if (state.seenRecently(signature)) {
-					if (debug) log(`🔍 重复投递，跳过：${data.giftName} ×${data.num}`);
-					return;
-				}
-				let ms = giftToMs(config, data);
-				if (debug) {
-					log(
-						`🔍 收到礼物 ${data.uname ?? "?"} ${data.giftName ?? "?"} ×${data.num} ` +
-							`coin=${data.coin_type} price=${data.price} giftId=${data.giftId} → ${(ms / 60_000).toFixed(2)} 分钟`,
-					);
-				}
-				if (ms <= 0) {
-					if (debug) {
-						log(
-							`🔍 该礼物不加时（coin=${data.coin_type}，免费礼物过滤=${config.ignoreSilverGifts}，未命中 gifts 表，或 cnyToMinutes=${config.cnyToMinutes}）`,
-						);
-					}
-					return;
-				}
-				const userLeft = state.userBudgetLeftMs(data.uid);
-				if (userLeft <= 0) {
-					log(`⏳ ${data.uname} 触发单人限速，本次礼物不加时`);
-					return;
-				}
-				ms = Math.min(ms, userLeft);
-				const applied = grant(ms, {
-					kind: "gift",
-					user: String(data.uname ?? "观众"),
-					uid: Number(data.uid) || 0,
-					label: `${data.giftName ?? "礼物"}${Number(data.num) > 1 ? ` ×${data.num}` : ""}`,
-					giftId: String(data.giftId ?? ""),
+		const cmdName = String(cmd?.cmd ?? "");
+		if (debug) sampleCmd(cmdName || "?");
+		if (cmdName === "SEND_GIFT_V2") {
+			const parsed = decodeSendGiftV2(data);
+			if (!parsed || parsed.gifts.length === 0) {
+				log(
+					`⚠️ SEND_GIFT_V2 解包失败：typeof(data)=${typeof data}，样本=${JSON.stringify(cmd).slice(0, 500)}`,
+				);
+				return;
+			}
+			for (const item of parsed.gifts) {
+				handleGift({
+					uid: parsed.uid,
+					uname: parsed.uname,
+					giftId: item.giftId,
+					giftName: item.giftName,
+					num: item.num,
+					price: item.price,
+					coin_type: item.coinType,
+					timestamp: item.timestamp,
 				});
-				if (applied) state.spendUserBudget(data.uid, applied);
+			}
+			return;
+		}
+		switch (cmdName) {
+			case "SEND_GIFT": {
+				handleGift(data);
 				return;
 			}
 			case "GUARD_BUY": {
@@ -1656,6 +1807,79 @@ async function main() {
 			return;
 		}
 
+		// 外部监听器（bili-live-listener）把抓到的事件推到这里；只允许本机调用
+		if (req.method === "POST" && url.pathname === "/ingest") {
+			const addr = String(req.socket.remoteAddress ?? "").replace(
+				/^::ffff:/,
+				"",
+			);
+			if (addr !== "127.0.0.1" && addr !== "::1") {
+				jsonPlain(res, 403, { ok: false, error: "只允许本机" });
+				return;
+			}
+			let payload = {};
+			try {
+				payload = JSON.parse((await readBody(req)) || "{}");
+			} catch {
+				jsonPlain(res, 400, { ok: false, error: "请求体不是 JSON" });
+				return;
+			}
+			lastIngestAt = Date.now();
+			runtime.connected = true;
+			runtime.reason = "监听器推送中";
+			const kind = String(payload.type ?? "gift");
+			try {
+				if (kind === "gift") {
+					handleGift({
+						uid: Number(payload.uid) || 0,
+						uname: String(payload.uname ?? "观众"),
+						giftId: payload.giftId ?? payload.gift_id ?? "",
+						giftName: String(payload.giftName ?? payload.gift_name ?? "礼物"),
+						num: Number(payload.num) || 1,
+						price: Number(payload.price) || 0,
+						coin_type: String(
+							payload.coinType ?? payload.coin_type ?? "gold",
+						).toLowerCase(),
+						timestamp: Number(payload.timestamp) || 0,
+					});
+				} else if (kind === "guard") {
+					const ms = guardToMs(config, {
+						guard_level: Number(payload.guardLevel ?? payload.guard_level),
+						num: Number(payload.num) || 1,
+					});
+					if (ms > 0) {
+						grant(ms, {
+							kind: "guard",
+							user: String(payload.uname ?? "观众"),
+							uid: Number(payload.uid) || 0,
+							label: String(payload.giftName ?? "大航海"),
+						});
+					}
+				} else if (kind === "superchat") {
+					const ms = superChatToMs(config, {
+						price: Number(payload.price) || 0,
+					});
+					if (ms > 0) {
+						grant(ms, {
+							kind: "superchat",
+							user: String(payload.uname ?? "观众"),
+							uid: Number(payload.uid) || 0,
+							label: `醒目留言 ¥${Number(payload.price) || 0}`,
+						});
+					}
+				}
+				jsonPlain(res, 200, {
+					ok: true,
+					giftCount: state.giftCount,
+					addedMs: state.addedMs,
+				});
+			} catch (err) {
+				log(`⚠️ 处理监听器事件失败：${err.message}`);
+				jsonPlain(res, 500, { ok: false, error: err.message });
+			}
+			return;
+		}
+
 		if (req.method === "POST" && url.pathname === "/control") {
 			// 两种身份都放行：老的控制口令（x-timer-token / 本机调用），
 			// 或网页登录态（Authorization: Bearer 会话令牌，配置页的按钮用它）
@@ -1772,13 +1996,39 @@ async function main() {
 		client.run().catch((err) => log(`⚠️ 弹幕客户端退出：${err.message}`));
 	}
 
-	if (!demo) {
+	if (!demo && !useListener) {
 		startClient();
+	} else if (useListener) {
+		log(
+			'👂 listener 模式：不自己连弹幕，等 bili-live-listener POST /ingest（90 秒没事件视为断开）',
+		);
+		// 监听器空闲检测：超过 90 秒没有事件就当没在推
+		setInterval(() => {
+			if (lastIngestAt === 0) return;
+			const idle = Date.now() - lastIngestAt;
+			if (idle > 90_000 && runtime.connected) {
+				runtime.connected = false;
+				runtime.reason = `监听器已 ${Math.round(idle / 1000)} 秒没有推送`;
+			}
+		}, 15_000);
 	} else {
 		log(
 			'🧪 demo 模式：不连 B 站，用 POST /control {"action":"demoGift"} 模拟礼物',
 		);
 	}
+
+	// 开播状态只在连接时取一次会过期（中途开播/下播都不会更新），每 5 分钟刷一次
+	setInterval(async () => {
+		if (demo || !client) return;
+		try {
+			await client.resolveRoom();
+			if (client.liveStatus !== undefined) {
+				runtime.liveStatus = client.liveStatus;
+			}
+		} catch {
+			// 拉不到就沿用旧值
+		}
+	}, 5 * 60_000);
 
 	const shutdown = async () => {
 		if (stopped) return;

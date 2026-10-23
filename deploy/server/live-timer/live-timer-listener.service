@@ -1,0 +1,21 @@
+[Unit]
+Description=Bilibili live event forwarder (bili-live-listener → live-timer)
+Documentation=file:///opt/live-timer-listener/listener.mjs
+After=network-online.target live-timer.service
+Wants=network-online.target live-timer.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/live-timer-listener
+Environment=LIVE_TIMER_CONFIG=/var/lib/live-timer/config.json
+Environment=LISTENER_INGEST=http://127.0.0.1:8848/ingest
+ExecStart=/usr/bin/env node /opt/live-timer-listener/listener.mjs
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
