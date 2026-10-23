@@ -80,6 +80,8 @@ interface ServerConfig {
 		perUserPerMinute: number;
 		totalMinutes: number;
 	};
+	/** 只读标记：服务端是否已配置登录 cookie（值永远不会下发） */
+	cookieSet?: boolean;
 }
 
 interface RuntimeInfo {
@@ -114,6 +116,11 @@ let ctlMsg = $state("");
 let ctlBad = $state(false);
 let customMinutes = $state(10);
 
+/** 登录 cookie：只写不读，界面上只显示「是否已设置」 */
+let cookieInput = $state("");
+let cookieSet = $state(false);
+let clearCookie = $state(false);
+
 const runtimeLabel = $derived.by(() => {
 	if (!runtime) return "状态未知";
 	const parts = [runtime.connected ? "弹幕已连接" : "弹幕未连接"];
@@ -135,6 +142,9 @@ function applyServerConfig(config: ServerConfig): void {
 	perGift = Number(config.caps?.perGiftMinutes) || 0;
 	perUser = Number(config.caps?.perUserPerMinute) || 0;
 	totalCap = Number(config.caps?.totalMinutes) || 0;
+	cookieSet = config.cookieSet === true;
+	cookieInput = "";
+	clearCookie = false;
 	const rows: GiftRow[] = [];
 	for (const [name, minutes] of Object.entries(config.gifts ?? {})) {
 		rows.push(makeGiftRow(name, Number(minutes) || 0));
@@ -253,7 +263,9 @@ async function saveToServer(): Promise<void> {
 	saveMsg = "";
 	saveError = "";
 	try {
-		const payload = {
+		const payload: {
+			config: Record<string, unknown>;
+		} = {
 			config: {
 				roomId: Number(roomId) || 0,
 				initialMinutes: Number(initialMinutes) || 0,
@@ -272,6 +284,12 @@ async function saveToServer(): Promise<void> {
 				},
 			},
 		};
+		// cookie 只写不读：留空 = 不改；点「清空」= 传空串；填了 = 覆盖
+		if (clearCookie) {
+			payload.config.cookie = "";
+		} else if (cookieInput.trim()) {
+			payload.config.cookie = cookieInput.trim();
+		}
 		const res = await fetch(`${apiBase}/admin/config`, {
 			method: "PUT",
 			headers: {
@@ -661,6 +679,37 @@ function downloadConfig(): void {
 				<p class="hint">
 					按当前设置，100 元 ≈ <strong>{hundredYuan}</strong>。没命中下面礼物表的礼物一律按这个比例算。
 				</p>
+
+				<div class="field cookie-field">
+					<span class="field-name">
+						登录 Cookie
+						<em class:off={!cookieSet}>{cookieSet ? "已设置" : "未设置"}</em>
+					</span>
+					<div class="cookie-row">
+						<input
+							type="password"
+							placeholder={cookieSet ? "已设置，留空表示不改" : "SESSDATA=xxxx; bili_jct=yyyy"}
+							bind:value={cookieInput}
+							autocomplete="off"
+							disabled={clearCookie}
+						/>
+						<button
+							type="button"
+							class="ghost"
+							onclick={() => {
+								clearCookie = !clearCookie;
+								cookieInput = "";
+							}}
+						>
+							{clearCookie ? "取消清空" : "清空"}
+						</button>
+					</div>
+					<p class="hint">
+						不带 cookie 时是匿名连接，B 站<b>只推全站广播</b>，房间里的弹幕/礼物收不到。
+						从浏览器 F12 → Application → Cookies → bilibili.com 复制整条（重点含 <code>SESSDATA</code>），
+						保存后会自动以你的 uid 重连。这里只写不读，存到服务器上不会再显示出来。
+					</p>
+				</div>
 			</section>
 
 			<section class="panel">
@@ -1080,6 +1129,33 @@ function downloadConfig(): void {
 
 	.ctl-msg.bad {
 		color: #f43f5e;
+	}
+
+	.cookie-field {
+		margin-top: 0.9rem;
+		padding-top: 0.8rem;
+		border-top: 1px dashed var(--line-divider);
+	}
+
+	.cookie-field .field-name em.off {
+		color: #f59e0b;
+	}
+
+	.cookie-row {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.cookie-row input {
+		flex: 1;
+		min-width: 0;
+		padding: 0.42rem 0.6rem;
+		border: 1px solid var(--line-divider);
+		border-radius: 0.55rem;
+		background-color: var(--btn-regular-bg);
+		color: var(--deep-text);
+		font: inherit;
+		font-size: 0.82rem;
 	}
 
 	.panels {

@@ -161,6 +161,11 @@ function pickEditable(config) {
 	};
 }
 
+/** 网页端视图：多给一个「cookie 是否已设置」，但绝不回传 cookie 本身 */
+function pickWebView(config) {
+	return { ...pickEditable(config), cookieSet: Boolean(config.cookie) };
+}
+
 /** 只做白名单字段的校验 + 夹紧，绝不接受 outFile / stateFile / adminToken 这类字段 */
 function normalizeEditable(raw) {
 	if (!raw || typeof raw !== "object") {
@@ -192,6 +197,9 @@ function normalizeEditable(raw) {
 		const n = Number(raw.caps?.[key]);
 		return Number.isFinite(n) ? Math.min(max, Math.max(0, Math.round(n))) : 0;
 	};
+	// cookie 只写不读：不传 = 不改；传空串 = 清空；传值 = 覆盖（最长 4096）
+	const cookie =
+		typeof raw.cookie === "string" ? raw.cookie.trim().slice(0, 4096) : null;
 	return {
 		ok: true,
 		value: {
@@ -209,6 +217,7 @@ function normalizeEditable(raw) {
 				perUserPerMinute: capOf("perUserPerMinute", 1440),
 				totalMinutes: capOf("totalMinutes", 10080),
 			},
+			cookie,
 		},
 	};
 }
@@ -544,6 +553,8 @@ class DanmakuClient {
 		this.buvid = "";
 		this.wbiKey = "";
 		this.wbiAt = 0;
+		/** 登录态 uid（0 = 匿名）。B 站只给登录态推送房间内事件 */
+		this.uid = 0;
 		/** 最近一次收到心跳回包的时间，用来判断连接是不是已经半死 */
 		this.lastBeatAt = 0;
 	}
@@ -582,17 +593,67 @@ class DanmakuClient {
 				`https://api.live.bilibili.com/room/v1/Room/get_info?room_id=${this.config.roomId}`,
 				{ headers: this.headers(this.config.roomId) },
 			);
-			const json = await res.json();
+			const text = await res.text();
+			let json = null;
+			try {
+				json = JSON.parse(text);
+			} catch {
+				// 被风控时这里会返回 HTML，解析失败就退回用配置里的房号
+			}
 			const data = json?.data;
 			if (json?.code === 0 && data?.room_id) {
 				this.roomId = Number(data.room_id);
 				this.liveStatus = Number(data.live_status) || 0;
+				if (this.config.debug) {
+					log(
+						`🔍 房间解析：配置 ${this.config.roomId} → 真实 ${this.roomId}，live_status=${this.liveStatus}（1=直播中）`,
+					);
+				}
 				return;
+			}
+			if (this.config.debug) {
+				log(
+					`🔍 房间信息接口没给出 live_status（code=${json?.code ?? "非 JSON"}），按配置房号 ${this.config.roomId} 连接`,
+				);
 			}
 		} catch {
 			// 拉不到房间信息不影响连弹幕
 		}
 		this.roomId = this.config.roomId;
+	}
+
+	/**
+	 * 登录态识别：B 站现在对「匿名」连接只推全站广播（NOTICE_MSG 之类），
+	 * 房间内的弹幕/礼物必须有登录 cookie，鉴权包里 uid 也得是真实 uid。
+	 * 有 cookie 就取 nav 里的 mid，拿不到就退回匿名。
+	 */
+	async ensureLogin() {
+		if (this.uid) return this.uid;
+		const cookie = String(this.config.cookie ?? "").trim();
+		if (!cookie) {
+			if (this.config.debug) {
+				log("🔍 未配置 cookie：匿名连接，可能只收到全站广播");
+			}
+			return 0;
+		}
+		try {
+			const res = await fetch("https://api.bilibili.com/x/web-interface/nav", {
+				headers: this.headers(this.roomId ?? this.config.roomId),
+			});
+			const json = await res.json();
+			const mid = Number(json?.data?.mid);
+			if (Number.isFinite(mid) && mid > 0) {
+				this.uid = mid;
+				log(`🔐 已按登录态连接（uid=${mid}），房间事件才会推送`);
+				return mid;
+			}
+			log(
+				`⚠️ cookie 里没解析到 uid（code=${json?.code}），按匿名连接，可能收不到房间事件`,
+			);
+		} catch (err) {
+			log(`⚠️ 取登录 uid 失败：${err.message}`);
+		}
+		return 0;
 	}
 
 	/** wbi 口令：11 小时刷新一次就够（B 站自己也是这个量级） */
@@ -674,6 +735,7 @@ class DanmakuClient {
 
 	async run() {
 		await this.resolveRoom();
+		await this.ensureLogin();
 		let backoff = 1000;
 		while (!this.stopped) {
 			try {
@@ -716,7 +778,8 @@ class DanmakuClient {
 			ws.addEventListener("open", () => {
 				const auth = Buffer.from(
 					JSON.stringify({
-						uid: 0,
+						// 有登录 cookie 时用真实 uid；匿名(0) 只拿得到全站广播
+						uid: this.uid || 0,
 						roomid: this.roomId ?? this.config.roomId,
 						protover: 3,
 						platform: "web",
@@ -981,6 +1044,24 @@ async function selfTest(config) {
 			!("" in trimmed.value.gifts),
 	);
 
+	const cookieView = pickWebView({
+		...okRoom.value,
+		cookie: "SESSDATA=abc; bili_jct=def",
+	});
+	check(
+		"网页视图只回「是否已设置」，不泄露 cookie",
+		!("cookie" in cookieView) && cookieView.cookieSet === true,
+	);
+	check(
+		"cookie 写入裁剪到 4096 字符",
+		normalizeEditable({ roomId: 1, cookie: "x".repeat(5000) }).value.cookie
+			.length === 4096,
+	);
+	check(
+		"不传 cookie 表示保持原值（null）",
+		normalizeEditable({ roomId: 1 }).value.cookie === null,
+	);
+
 	console.log(
 		`\n${failures.length === 0 ? "✅" : "❌"} 自检结束：通过 ${pass} 项` +
 			(failures.length
@@ -1108,9 +1189,21 @@ async function main() {
 		return applied;
 	}
 
+	// 调试用：每隔几秒把「最近收到的 cmd 名字」打一条，确认事件流到底通不通
+	let lastCmdAt = 0;
+	let lastCmdName = "";
+	function sampleCmd(name) {
+		const now = Date.now();
+		if (name === lastCmdName && now - lastCmdAt < 5000) return;
+		lastCmdAt = now;
+		lastCmdName = name;
+		log(`🔍 事件流：${name}`);
+	}
+
 	function onCommand(cmd) {
 		const data = cmd?.data ?? {};
 		const debug = Boolean(config.debug);
+		if (debug) sampleCmd(String(cmd?.cmd ?? "?"));
 		switch (cmd?.cmd) {
 			case "SEND_GIFT": {
 				const signature = `${data.uid}:${data.giftId}:${data.timestamp}:${data.combo_num ?? ""}:${data.num}`;
@@ -1316,13 +1409,19 @@ async function main() {
 	/** 只把可编辑字段合并回配置文件，别的字段原样保留 */
 	async function persistConfig() {
 		const current = (await readJson(configFilePath).catch(() => null)) ?? {};
-		const merged = { ...current, ...pickEditable(config) };
+		const merged = {
+			...current,
+			...pickEditable(config),
+			cookie: config.cookie,
+		};
 		await writeJsonAtomic(configFilePath, merged);
 		await chmod(configFilePath, 0o600).catch(() => {});
 	}
 
 	function applyEditable(value) {
 		const roomChanged = value.roomId !== config.roomId;
+		const cookieChanged =
+			value.cookie !== null && value.cookie !== String(config.cookie ?? "");
 		config.roomId = value.roomId;
 		config.initialMinutes = value.initialMinutes;
 		config.cnyToMinutes = value.cnyToMinutes;
@@ -1330,11 +1429,13 @@ async function main() {
 		config.gifts = value.gifts;
 		config.guards = value.guards;
 		config.caps = value.caps;
-		if (roomChanged && !demo) {
-			log(`🔀 直播间号改成 ${value.roomId}，重连弹幕`);
+		if (value.cookie !== null) config.cookie = value.cookie;
+		if (!demo && (roomChanged || cookieChanged)) {
+			if (roomChanged) log(`🔀 直播间号改成 ${value.roomId}，重连弹幕`);
+			if (cookieChanged) log("🔐 登录 cookie 有变化，重连弹幕以登录态收事件");
 			startClient();
 		}
-		return roomChanged;
+		return { roomChanged, cookieChanged };
 	}
 
 	const server = createServer(async (req, res) => {
@@ -1420,7 +1521,7 @@ async function main() {
 				ok: true,
 				token,
 				exp,
-				config: pickEditable(config),
+				config: pickWebView(config),
 				runtime: runtimeInfo(),
 			});
 			return;
@@ -1435,7 +1536,7 @@ async function main() {
 			if (req.method === "GET") {
 				jsonPlain(res, 200, {
 					ok: true,
-					config: pickEditable(config),
+					config: pickWebView(config),
 					runtime: runtimeInfo(),
 					sessionExp: auth.session.exp,
 				});
@@ -1454,7 +1555,7 @@ async function main() {
 					jsonPlain(res, 400, { ok: false, error: result.error });
 					return;
 				}
-				const roomChanged = applyEditable(result.value);
+				const { roomChanged, cookieChanged } = applyEditable(result.value);
 				try {
 					await persistConfig();
 				} catch (err) {
@@ -1470,9 +1571,10 @@ async function main() {
 				);
 				jsonPlain(res, 200, {
 					ok: true,
-					config: pickEditable(config),
+					config: pickWebView(config),
 					runtime: runtimeInfo(),
 					roomChanged,
+					cookieChanged,
 				});
 				return;
 			}
