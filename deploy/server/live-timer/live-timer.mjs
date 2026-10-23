@@ -855,7 +855,11 @@ class DanmakuClient {
 				}
 				if (code === 0) {
 					this.lastBeatAt = Date.now();
-					log(`✅ 已连上直播间 ${this.roomId ?? this.config.roomId} 的弹幕流`);
+					const liveTxt =
+						this.liveStatus === 1 ? "直播中" : "未开播，此时不会有礼物事件";
+					log(
+						`✅ 已连上直播间 ${this.roomId ?? this.config.roomId} 的弹幕流 · ${liveTxt}`,
+					);
 					this.onStatus?.({
 						connected: true,
 						liveStatus: this.liveStatus ?? null,

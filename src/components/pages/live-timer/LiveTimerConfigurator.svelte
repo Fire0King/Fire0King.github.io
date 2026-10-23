@@ -92,6 +92,8 @@ interface RuntimeInfo {
 	paused: boolean;
 	giftCount: number;
 	addedMs: number;
+	/** 1=直播中，0=未开播（未开播时 B 站不推礼物事件） */
+	liveStatus?: number | null;
 }
 
 let loggedIn = $state(false);
@@ -124,6 +126,8 @@ let clearCookie = $state(false);
 const runtimeLabel = $derived.by(() => {
 	if (!runtime) return "状态未知";
 	const parts = [runtime.connected ? "弹幕已连接" : "弹幕未连接"];
+	if (runtime.liveStatus === 1) parts.push("直播中");
+	else if (runtime.liveStatus === 0) parts.push("未开播（收不到礼物）");
 	if (runtime.paused) parts.push("已暂停");
 	const minutes = Math.round(runtime.remainingMs / 60_000);
 	parts.push(minutes >= 0 ? `剩余 ${minutes} 分钟` : `加班 ${-minutes} 分钟`);
@@ -355,6 +359,10 @@ async function control(action: string, minutes?: number): Promise<void> {
 				paused: Boolean(data.state.paused),
 				giftCount: Number(data.state.giftCount) || 0,
 				addedMs: Number(data.state.addedMs) || 0,
+				liveStatus:
+					data.state.liveStatus === undefined || data.state.liveStatus === null
+						? null
+						: Number(data.state.liveStatus),
 			};
 		}
 		if (action === "start") ctlMsg = "已重新开局";
@@ -450,6 +458,10 @@ async function refreshRuntime(): Promise<void> {
 			paused: Boolean(data.paused),
 			giftCount: Number(data.giftCount) || 0,
 			addedMs: Number(data.addedMs) || 0,
+			liveStatus:
+				data.liveStatus === undefined || data.liveStatus === null
+					? null
+					: Number(data.liveStatus),
 		};
 	} catch {
 		// 拉不到就保持上一次的状态
