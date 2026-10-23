@@ -1,19 +1,9 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-23T20:41:47+08:00",
+  "updatedAt": "2026-10-24T01:10:40+08:00",
   "timezone": "Asia/Shanghai",
   "intervalMinutes": 10,
-  "active": {
-    "bilibili": {
-      "platform": "bilibili",
-      "title": "最烧心的直播间",
-      "start": "2026-10-23T20:41:47+08:00",
-      "titleUpdatedAt": "2026-10-23T20:41:47+08:00",
-      "url": "https://live.bilibili.com/1750753391",
-      "roomId": "1750753391",
-      "cover": "https://i0.hdslb.com/bfs/live/user_cover/a4f9321cdfe1c5e69e83aad4a57b168d3c64bb58.jpg"
-    }
-  },
+  "active": {},
   "records": [
     {
       "id": "bilibili-2026-09-30T19:42:42+08:00",
@@ -290,6 +280,18 @@
           "https://p11-webcast-sign.douyinpic.com/webcast-cover/7611565017426823987~tplv-qz53dukwul-common-resize:0:0.image?biz_tag=app_6383_webcast&from=webcast.room.pack&l=20261023192956EBB3FA1344B1D683345B&lk3s=39e7556e&s=enter_room&sc=webcast_cover&x-expires=1795346996&x-signature=z5rzWJCdu8zHa79Lnv3pa6AhChk%3D"
         ]
       }
+    },
+    {
+      "id": "bilibili-2026-10-23T20:41:47+08:00",
+      "platform": "bilibili",
+      "title": "最烧心的直播间",
+      "date": "2026-10-23",
+      "start": "2026-10-23T20:41:47+08:00",
+      "end": "2026-10-24T01:10:40+08:00",
+      "durationSeconds": 16133,
+      "url": "https://live.bilibili.com/1750753391",
+      "roomId": "1750753391",
+      "cover": "https://i0.hdslb.com/bfs/live/user_cover/a4f9321cdfe1c5e69e83aad4a57b168d3c64bb58.jpg"
     }
   ]
 }
