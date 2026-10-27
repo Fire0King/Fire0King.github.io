@@ -792,12 +792,12 @@ function downloadConfig(): void {
 
 			<section class="panel">
 				<h3>礼物表</h3>
-				<p class="hint">名字要和弹幕里推的 <code>giftName</code> 一字不差；填 <strong>0</strong> 表示这个礼物不加时。</p>
+				<p class="hint">名字要和弹幕里推的 <code>giftName</code> 一字不差；<strong>0</strong> = 不加不减，<strong>负数</strong> = 减时（如 <code>-0.1</code>）。</p>
 				<div class="rows">
 					{#each giftRows as row (row.id)}
 						<div class="row">
 							<input type="text" placeholder="礼物名，如 小花花" bind:value={row.name} />
-							<input class="minutes" type="number" min="0" step="0.5" bind:value={row.minutes} />
+							<input class="minutes" type="number" min="-1440" step="0.1" bind:value={row.minutes} />
 							<span class="unit">分钟</span>
 							<button
 								type="button"
@@ -831,7 +831,7 @@ function downloadConfig(): void {
 									<span class="rg-meta">
 										id {gift.giftId} · {gift.coinType || "?"} · 单价 {gift.price} ·
 										<span class:rg-ok={gift.applied} class:rg-no={!gift.applied}>
-											{gift.reason}{gift.applied ? ` +${(gift.ms / 60000).toFixed(2)} 分` : ""}
+											{gift.reason}{gift.applied ? ` ${gift.ms >= 0 ? "+" : ""}${(gift.ms / 60000).toFixed(2)} 分` : ""}
 										</span>
 									</span>
 									<span class="rg-user">{gift.uname}</span>

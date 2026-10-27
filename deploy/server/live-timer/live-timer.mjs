@@ -184,8 +184,10 @@ function normalizeEditable(raw) {
 		const hasControlChar = [...name].some((ch) => ch.charCodeAt(0) < 32);
 		if (!name || name.length > 40 || hasControlChar) continue;
 		const minutes = Number(value);
-		if (!Number.isFinite(minutes) || minutes < 0) continue;
-		gifts[name] = Math.round(Math.min(1440, minutes) * 10) / 10;
+		if (!Number.isFinite(minutes)) continue;
+		// 负数表示「减时」（比如粉丝团灯牌 -0.1 分钟）
+		gifts[name] =
+			Math.round(Math.min(1440, Math.max(-1440, minutes)) * 10) / 10;
 		count += 1;
 		if (count >= 60) break;
 	}
@@ -1156,12 +1158,28 @@ async function selfTest(config) {
 	);
 	const trimmed = normalizeEditable({
 		roomId: 1,
-		gifts: { 小花花: 2.55, "": 9, 辣条: -1 },
+		gifts: { 小花花: 2.55, "": 9, 辣条: "abc" },
 		guards: {},
 		caps: {},
 	});
 	check(
-		"礼物表被裁剪（负数丢弃、小数保留一位）",
+		"负数分钟（减时礼物）会保留",
+		normalizeEditable({
+			roomId: 1,
+			gifts: { 粉丝团灯牌: -0.1 },
+			guards: {},
+			caps: {},
+		}).value.gifts["粉丝团灯牌"] === -0.1,
+	);
+	check(
+		"负数分钟折算成负毫秒",
+		giftToMs(
+			{ ...config, gifts: { 粉丝团灯牌: -0.1 } },
+			{ giftName: "粉丝团灯牌", num: 1 },
+		) === -6000,
+	);
+	check(
+		"礼物表被裁剪（非法值丢弃、小数保留一位）",
 		trimmed.ok === true &&
 			trimmed.value.gifts["小花花"] === 2.6 &&
 			!("辣条" in trimmed.value.gifts) &&
@@ -1362,6 +1380,27 @@ async function main() {
 				`🔍 收到礼物 ${data.uname ?? "?"} ${data.giftName ?? "?"} ×${data.num} ` +
 					`coin=${data.coin_type} price=${data.price} giftId=${data.giftId} → ${(ms / 60_000).toFixed(2)} 分钟`,
 			);
+		}
+		if (ms < 0) {
+			// 负数分钟 = 减时礼物
+			state.shift(ms);
+			state.giftCount += 1;
+			const event = {
+				kind: "gift",
+				user: String(data.uname ?? "观众"),
+				uid: Number(data.uid) || 0,
+				label: `${data.giftName ?? "礼物"}${Number(data.num) > 1 ? ` ×${data.num}` : ""}`,
+				giftId: String(data.giftId ?? ""),
+				deltaMs: ms,
+				at: Date.now(),
+			};
+			state.lastGift = event;
+			state.recent = [event, ...state.recent].slice(0, 6);
+			log(
+				`🎁 ${event.user} 送出 ${event.label}，${(ms / 60_000).toFixed(2)} 分钟（减时）`,
+			);
+			noteGift({ ...rawInfo, ms, applied: true, reason: "已减时" });
+			return;
 		}
 		if (ms <= 0) {
 			noteGift({ ...rawInfo, ms: 0, applied: false, reason: "未加时" });
