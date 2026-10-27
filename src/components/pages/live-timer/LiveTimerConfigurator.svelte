@@ -96,6 +96,21 @@ interface RuntimeInfo {
 	liveStatus?: number | null;
 }
 
+/** 服务器记录下来的最近礼物（含没加时的），用来配礼物表 */
+interface RecentGift {
+	at: number;
+	uid: number;
+	uname: string;
+	giftId: string;
+	giftName: string;
+	num: number;
+	price: number;
+	coinType: string;
+	ms: number;
+	applied: boolean;
+	reason: string;
+}
+
 let loggedIn = $state(false);
 let token = $state("");
 let loginPassword = $state("");
@@ -122,6 +137,7 @@ let customMinutes = $state(10);
 let cookieInput = $state("");
 let cookieSet = $state(false);
 let clearCookie = $state(false);
+let recentGifts = $state<RecentGift[]>([]);
 
 const runtimeLabel = $derived.by(() => {
 	if (!runtime) return "状态未知";
@@ -161,6 +177,50 @@ function makeGiftRow(name: string, minutes: number): GiftRow {
 	return { id: rowSeq, name, minutes };
 }
 
+/** 把「最近收到的礼物」里的某一条加进礼物表（已存在就只提示） */
+function addGiftFromRecent(gift: RecentGift): void {
+	const name = gift.giftName.trim();
+	if (!name) return;
+	if (giftRows.some((row) => row.name.trim() === name)) {
+		saveMsg = `礼物表里已经有「${name}」了`;
+		return;
+	}
+	giftRows = [...giftRows, makeGiftRow(name, 1)];
+	saveMsg = `已把「${name}」加进礼物表，改好分钟数后点「保存到服务器」`;
+}
+
+/** 把某个礼物设成 0 分钟（等于忽略） */
+function ignoreRecentGift(gift: RecentGift): void {
+	const name = gift.giftName.trim();
+	if (!name) return;
+	const exists = giftRows.find((row) => row.name.trim() === name);
+	if (exists) {
+		exists.minutes = 0;
+	} else {
+		giftRows = [...giftRows, makeGiftRow(name, 0)];
+	}
+	saveMsg = `已把「${name}」设为 0 分钟，保存后生效`;
+}
+
+function applyRecent(list: unknown): void {
+	if (Array.isArray(list)) recentGifts = list as RecentGift[];
+}
+
+async function refreshRecent(): Promise<void> {
+	if (!token) return;
+	try {
+		const res = await fetch(`${apiBase}/admin/config`, {
+			headers: { authorization: `Bearer ${token}` },
+			cache: "no-store",
+		});
+		if (!res.ok) return;
+		const data = (await res.json()) as { recentGifts?: RecentGift[] };
+		applyRecent(data.recentGifts);
+	} catch {
+		// 拉不到就保持旧列表
+	}
+}
+
 function applyAuthSuccess(
 	nextToken: string,
 	config: ServerConfig | undefined,
@@ -176,6 +236,7 @@ function applyAuthSuccess(
 		// 隐私模式写不了也无所谓
 	}
 	void refreshRuntime();
+	void refreshRecent();
 }
 
 async function login(): Promise<void> {
@@ -201,6 +262,7 @@ async function login(): Promise<void> {
 			throw new Error(data.error ?? `HTTP ${res.status}`);
 		}
 		loginPassword = "";
+		applyRecent(data.recentGifts);
 		applyAuthSuccess(data.token, data.config, data.runtime);
 	} catch (err) {
 		loginError = err instanceof Error ? err.message : String(err);
@@ -227,6 +289,7 @@ async function restoreSession(): Promise<void> {
 			config?: ServerConfig;
 			runtime?: RuntimeInfo;
 		};
+		applyRecent(data.recentGifts);
 		applyAuthSuccess(saved, data.config, data.runtime);
 	} catch {
 		// 拿不到就当作没登录
@@ -475,7 +538,10 @@ onMount(() => {
 	if (override) apiBase = override.replace(/\/$/, "");
 	void restoreSession();
 	const timer = window.setInterval(() => {
-		if (loggedIn) void refreshRuntime();
+		if (loggedIn) {
+			void refreshRuntime();
+			void refreshRecent();
+		}
 	}, 10_000);
 	return () => window.clearInterval(timer);
 });
@@ -746,6 +812,40 @@ function downloadConfig(): void {
 					{/each}
 				</div>
 				<button type="button" class="ghost" onclick={addRow}>+ 加一行</button>
+			</section>
+
+			<section class="panel">
+				<h3>最近收到的礼物</h3>
+				<p class="hint">
+					这是直播间接到的原始礼物（含没加时的），显示 B 站推过来的真实 <code>giftName</code> 和 <code>giftId</code>。
+					点「加进礼物表」按名称填入上方表格，再改分钟数；点「设 0」等于忽略它。每 15 秒刷新。
+				</p>
+				{#if recentGifts.length === 0}
+					<p class="hint">还没有记录。开播后有人送礼就会出现。</p>
+				{:else}
+					<ul class="recent-gifts">
+						{#each recentGifts as gift (gift.at + "-" + gift.giftId + "-" + gift.num)}
+							<li class="recent-gift">
+								<div class="rg-main">
+									<span class="rg-name">{gift.giftName}<em>×{gift.num}</em></span>
+									<span class="rg-meta">
+										id {gift.giftId} · {gift.coinType || "?"} · 单价 {gift.price} ·
+										<span class:rg-ok={gift.applied} class:rg-no={!gift.applied}>
+											{gift.reason}{gift.applied ? ` +${(gift.ms / 60000).toFixed(2)} 分` : ""}
+										</span>
+									</span>
+									<span class="rg-user">{gift.uname}</span>
+								</div>
+								<div class="rg-actions">
+									<button type="button" class="ghost" onclick={() => addGiftFromRecent(gift)}>
+										加进礼物表
+									</button>
+									<button type="button" class="ghost" onclick={() => ignoreRecentGift(gift)}>设 0</button>
+								</div>
+							</li>
+						{/each}
+					</ul>
+				{/if}
 			</section>
 
 			<section class="panel">
@@ -1143,6 +1243,72 @@ function downloadConfig(): void {
 		color: #f43f5e;
 	}
 
+	.recent-gifts {
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+		margin: 0.2rem 0 0;
+		padding: 0;
+		list-style: none;
+		max-height: 16rem;
+		overflow-y: auto;
+	}
+
+	.recent-gift {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		padding: 0.45rem 0.6rem;
+		border: 1px solid var(--line-divider);
+		border-radius: 0.55rem;
+		background-color: var(--btn-regular-bg);
+	}
+
+	.rg-main {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		min-width: 0;
+		flex: 1;
+	}
+
+	.rg-name {
+		font-size: 0.82rem;
+		font-weight: 600;
+		color: var(--deep-text);
+	}
+
+	.rg-name em {
+		font-style: normal;
+		opacity: 0.6;
+		margin-left: 0.25rem;
+	}
+
+	.rg-meta {
+		font-size: 0.72rem;
+		color: var(--content-meta);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.rg-ok {
+		color: #22c55e;
+	}
+
+	.rg-no {
+		color: #f59e0b;
+	}
+
+	.rg-user {
+		font-size: 0.7rem;
+		color: var(--content-meta);
+		opacity: 0.75;
+	}
+
+	.rg-actions {
+		display: flex;
+		gap: 0.35rem;
+		flex-shrink: 0;
+	}
 	.cookie-field {
 		margin-top: 0.9rem;
 		padding-top: 0.8rem;

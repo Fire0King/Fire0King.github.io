@@ -1299,6 +1299,13 @@ async function main() {
 	/** 监听器模式：最近一次收到 ingest 的时间，用来判断「有没有在推」 */
 	let lastIngestAt = 0;
 
+	/** 最近收到的礼物（含没加时的）：配置礼物表时能看到真实 giftName / giftId / 单价 */
+	const recentGifts = [];
+	function noteGift(entry) {
+		recentGifts.unshift({ at: Date.now(), ...entry });
+		recentGifts.length = Math.min(recentGifts.length, 20);
+	}
+
 	const state = demo
 		? new TimerState(config)
 		: await TimerState.load(config, statePath);
@@ -1340,6 +1347,15 @@ async function main() {
 			if (config.debug) log(`🔍 重复投递，跳过：${data.giftName} ×${data.num}`);
 			return;
 		}
+		const rawInfo = {
+			uid: Number(data.uid) || 0,
+			uname: String(data.uname ?? "观众"),
+			giftId: String(data.giftId ?? ""),
+			giftName: String(data.giftName ?? "礼物"),
+			num: Number(data.num) || 1,
+			price: Number(data.price) || 0,
+			coinType: String(data.coin_type ?? ""),
+		};
 		let ms = giftToMs(config, data);
 		if (config.debug) {
 			log(
@@ -1348,6 +1364,7 @@ async function main() {
 			);
 		}
 		if (ms <= 0) {
+			noteGift({ ...rawInfo, ms: 0, applied: false, reason: "未加时" });
 			if (config.debug) {
 				log(
 					`🔍 该礼物不加时（coin=${data.coin_type}，免费礼物过滤=${config.ignoreSilverGifts}，未命中 gifts 表，或 cnyToMinutes=${config.cnyToMinutes}）`,
@@ -1358,6 +1375,7 @@ async function main() {
 		const userLeft = state.userBudgetLeftMs(data.uid);
 		if (userLeft <= 0) {
 			log(`⏳ ${data.uname} 触发单人限速，本次礼物不加时`);
+			noteGift({ ...rawInfo, ms: 0, applied: false, reason: "单人限速" });
 			return;
 		}
 		ms = Math.min(ms, userLeft);
@@ -1368,7 +1386,12 @@ async function main() {
 			label: `${data.giftName ?? "礼物"}${Number(data.num) > 1 ? ` ×${data.num}` : ""}`,
 			giftId: String(data.giftId ?? ""),
 		});
-		if (applied) state.spendUserBudget(data.uid, applied);
+		if (applied) {
+			state.spendUserBudget(data.uid, applied);
+			noteGift({ ...rawInfo, ms: applied, applied: true, reason: "已加时" });
+		} else {
+			noteGift({ ...rawInfo, ms: 0, applied: false, reason: "达到上限" });
+		}
 	}
 
 	function onCommand(cmd) {
@@ -1700,6 +1723,7 @@ async function main() {
 					ok: true,
 					config: pickWebView(config),
 					runtime: runtimeInfo(),
+					recentGifts: recentGifts.slice(0, 12),
 					sessionExp: auth.session.exp,
 				});
 				return;
@@ -2040,7 +2064,7 @@ async function main() {
 		startClient();
 	} else if (useListener) {
 		log(
-			'👂 listener 模式：不自己连弹幕，等 bili-live-listener POST /ingest（90 秒没事件视为断开）',
+			"👂 listener 模式：不自己连弹幕，等 bili-live-listener POST /ingest（90 秒没事件视为断开）",
 		);
 		// 监听器空闲检测：超过 90 秒没有事件就当没在推
 		setInterval(() => {
