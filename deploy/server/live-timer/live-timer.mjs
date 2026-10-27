@@ -1835,6 +1835,12 @@ async function main() {
 			runtime.connected = true;
 			runtime.reason = "监听器推送中";
 			const kind = String(payload.type ?? "gift");
+			// 心跳只是存活信号，不改任何计时状态
+			if (kind === "ping") {
+				runtime.reason = "已连接（监听器心跳正常）";
+				jsonPlain(res, 200, { ok: true, ping: true });
+				return;
+			}
 			try {
 				if (kind === "gift_v2") {
 					// bili-live-listener 只认旧版 SEND_GIFT；V2 是 base64 protobuf，

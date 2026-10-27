@@ -122,9 +122,9 @@ async function ingest(payload) {
 			return;
 		}
 		const data = await res.json();
-		if (debug) {
+		if (debug && payload.type !== "ping") {
 			log(
-				`📤 ${payload.type} ${payload.uname ?? ""} ${payload.giftName ?? ""} → 已累计 ${data.giftCount} 次`,
+				`📤 ${payload.type} ${payload.uname ?? ""} ${payload.giftName ?? ""} → 已累计 ${data.giftCount ?? "-"} 次`,
 			);
 		}
 	} catch (err) {
@@ -179,6 +179,8 @@ async function main() {
 		live.onLive(() => log("✅ 已进入直播间，开始接收事件"));
 		live.onHeartbeat(() => {
 			if (debug) log("💓 心跳");
+			// 心跳当作存活信号转发给计时器，否则「礼物一停」状态就会误报成未连接
+			ingest({ type: "ping" });
 		});
 		live.onError((err) => log(`⚠️ 连接错误：${err?.message ?? err}`));
 		live.onClose(() => log("📴 连接关闭"));
