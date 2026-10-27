@@ -10,6 +10,7 @@
  * 页面是纯静态的，不会写服务器上的文件 —— 配置生成后由你自己覆盖到
  * /etc/live-timer/config.json，再 systemctl restart live-timer。
  */
+import QRCode from "qrcode";
 import { onMount } from "svelte";
 
 interface GiftRow {
@@ -141,6 +142,97 @@ let cookieInput = $state("");
 let cookieSet = $state(false);
 let clearCookie = $state(false);
 let recentGifts = $state<RecentGift[]>([]);
+
+/** 扫码登录（不用手动复制 cookie） */
+let qrVisible = $state(false);
+let qrDataUrl = $state("");
+let qrKey = $state("");
+let qrMsg = $state("");
+let qrBusy = $state(false);
+let qrTimer: ReturnType<typeof setInterval> | undefined;
+
+async function startQrLogin(): Promise<void> {
+	if (qrBusy) return;
+	qrBusy = true;
+	qrMsg = "";
+	try {
+		const res = await fetch(`${apiBase}/admin/qr/generate`, {
+			method: "POST",
+			headers: { authorization: `Bearer ${token}` },
+		});
+		const data = (await res.json().catch(() => ({}))) as {
+			ok?: boolean;
+			url?: string;
+			key?: string;
+			error?: string;
+		};
+		if (!res.ok || !data.ok || !data.url || !data.key) {
+			throw new Error(data.error ?? `HTTP ${res.status}`);
+		}
+		qrKey = data.key;
+		qrDataUrl = await QRCode.toDataURL(data.url, {
+			margin: 1,
+			width: 220,
+			color: { dark: "#111111", light: "#ffffff" },
+		});
+		qrVisible = true;
+		qrMsg = "用 B 站手机客户端扫码并确认";
+		stopQrPolling();
+		qrTimer = setInterval(() => void pollQr(), 2000);
+	} catch (err) {
+		qrMsg = err instanceof Error ? err.message : String(err);
+		qrVisible = false;
+	} finally {
+		qrBusy = false;
+	}
+}
+
+function stopQrPolling(): void {
+	if (qrTimer) {
+		clearInterval(qrTimer);
+		qrTimer = undefined;
+	}
+}
+
+async function pollQr(): Promise<void> {
+	if (!qrKey) return;
+	try {
+		const res = await fetch(
+			`${apiBase}/admin/qr/poll?key=${encodeURIComponent(qrKey)}`,
+			{ headers: { authorization: `Bearer ${token}` }, cache: "no-store" },
+		);
+		const data = (await res.json().catch(() => ({}))) as {
+			ok?: boolean;
+			done?: boolean;
+			code?: number;
+			message?: string;
+			uid?: number;
+			error?: string;
+		};
+		if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+		if (data.done) {
+			stopQrPolling();
+			qrVisible = false;
+			qrMsg = `扫码成功${data.uid ? `（UID ${data.uid}）` : ""}，cookie 已保存，正在重连…`;
+			cookieSet = true;
+			cookieInput = "";
+			clearCookie = false;
+			await reloadFromServer();
+			return;
+		}
+		if (data.code === 86038) {
+			stopQrPolling();
+			qrVisible = false;
+			qrMsg = "二维码已过期，请重新生成";
+			return;
+		}
+		if (data.code === 86090) qrMsg = "已扫码，请在手机上确认";
+		else if (data.code === 86101) qrMsg = "等待扫码…";
+	} catch (err) {
+		stopQrPolling();
+		qrMsg = err instanceof Error ? err.message : String(err);
+	}
+}
 
 const runtimeLabel = $derived.by(() => {
 	if (!runtime) return "状态未知";
@@ -799,6 +891,21 @@ function downloadConfig(): void {
 							{clearCookie ? "取消清空" : "清空"}
 						</button>
 					</div>
+
+					<div class="qr-box">
+						<button
+							type="button"
+							class="primary"
+							onclick={startQrLogin}
+							disabled={qrBusy || qrVisible}
+						>
+							{qrBusy ? "生成中…" : "扫码登录（自动填 Cookie）"}
+						</button>
+						{#if qrMsg}<span class="qr-msg">{qrMsg}</span>{/if}
+						{#if qrVisible && qrDataUrl}
+							<img class="qr-img" src={qrDataUrl} alt="B 站登录二维码" />
+						{/if}
+					</div>
 					<p class="hint">
 						不带 cookie 时是匿名连接，B 站<b>只推全站广播</b>，房间里的弹幕/礼物收不到。
 						从浏览器 F12 → Application → Cookies → bilibili.com 复制整条（重点含 <code>SESSDATA</code>），
@@ -1348,6 +1455,29 @@ function downloadConfig(): void {
 		gap: 0.35rem;
 		flex-shrink: 0;
 	}
+	.qr-box {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.6rem;
+		margin-top: 0.55rem;
+	}
+
+	.qr-msg {
+		font-size: 0.75rem;
+		color: var(--content-meta);
+	}
+
+	.qr-img {
+		display: block;
+		width: 200px;
+		height: 200px;
+		margin-top: 0.4rem;
+		padding: 6px;
+		border-radius: 0.5rem;
+		background: #fff;
+	}
+
 	.cookie-field {
 		margin-top: 0.9rem;
 		padding-top: 0.8rem;

@@ -1634,6 +1634,79 @@ async function main() {
 		})();
 	}
 
+	/** 扫码登录①：向 B 站要一张登录二维码 */
+	async function biliQrGenerate() {
+		const res = await fetch(
+			"https://passport.bilibili.com/x/passport-login/web/qrcode/generate?source=main-fe-header",
+			{ headers: { "User-Agent": UA, Referer: "https://www.bilibili.com/" } },
+		);
+		const json = await res.json();
+		if (json?.code !== 0 || !json?.data?.url) {
+			throw new Error(`code=${json?.code} ${json?.message ?? ""}`);
+		}
+		return { url: json.data.url, key: json.data.qrcode_key };
+	}
+
+	/** 扫码登录②：轮询；成功后把 cookie（和 refresh_token）落盘 */
+	async function biliQrPoll(key) {
+		const res = await fetch(
+			`https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=${encodeURIComponent(key)}&source=main-fe-header`,
+			{ headers: { "User-Agent": UA, Referer: "https://www.bilibili.com/" } },
+		);
+		const json = await res.json();
+		if (json?.code !== 0) {
+			throw new Error(`code=${json?.code} ${json?.message ?? ""}`);
+		}
+		const code = Number(json?.data?.code);
+		if (code !== 0) {
+			// 86101=未扫码 86090=已扫码待确认 86038=已过期
+			return {
+				ok: true,
+				done: false,
+				code,
+				message: String(json?.data?.message ?? ""),
+			};
+		}
+		const jar = {};
+		const setCookies =
+			typeof res.headers.getSetCookie === "function"
+				? res.headers.getSetCookie()
+				: [];
+		for (const line of setCookies) {
+			const pair = String(line).split(";")[0];
+			const idx = pair.indexOf("=");
+			if (idx > 0) jar[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+		}
+		try {
+			const u = new URL(String(json?.data?.url ?? ""));
+			for (const [k, v] of u.searchParams) jar[k] = v;
+		} catch {
+			// url 里没有就算了，以 Set-Cookie 为准
+		}
+		const sessdata = jar.SESSDATA ?? "";
+		const biliJct = jar.bili_jct ?? "";
+		const dede = jar.DedeUserID ?? "";
+		if (!sessdata) {
+			return { ok: false, done: false, error: "扫码成功但没拿到 SESSDATA" };
+		}
+		const cookieStr = [
+			`SESSDATA=${sessdata}`,
+			biliJct ? `bili_jct=${biliJct}` : "",
+			dede ? `DedeUserID=${dede}` : "",
+		]
+			.filter(Boolean)
+			.join("; ");
+		config.cookie = cookieStr;
+		config.refreshToken = String(json?.data?.refresh_token ?? "");
+		await persistConfig();
+		log(
+			`🔐 扫码登录成功（DedeUserID=${dede || "?"}），cookie 已保存，监听器会自动重连`,
+		);
+		runtime.authOk = true;
+		runtime.authReason = "";
+		return { ok: true, done: true, uid: Number(dede) || 0 };
+	}
+
 	/** 只把可编辑字段合并回配置文件，别的字段原样保留 */
 	async function persistConfig() {
 		const current = (await readJson(configFilePath).catch(() => null)) ?? {};
@@ -1808,6 +1881,44 @@ async function main() {
 				return;
 			}
 			jsonPlain(res, 405, { ok: false, error: "只支持 GET / PUT" });
+			return;
+		}
+
+		if (req.method === "POST" && url.pathname === "/admin/qr/generate") {
+			const auth = await adminAuth(req);
+			if (!auth.ok) {
+				jsonPlain(res, auth.code, { ok: false, error: auth.error });
+				return;
+			}
+			try {
+				const qr = await biliQrGenerate();
+				jsonPlain(res, 200, { ok: true, ...qr });
+			} catch (err) {
+				jsonPlain(res, 502, {
+					ok: false,
+					error: `请求 B 站失败：${err.message}`,
+				});
+			}
+			return;
+		}
+
+		if (req.method === "GET" && url.pathname === "/admin/qr/poll") {
+			const auth = await adminAuth(req);
+			if (!auth.ok) {
+				jsonPlain(res, auth.code, { ok: false, error: auth.error });
+				return;
+			}
+			const key = String(url.searchParams.get("key") ?? "");
+			if (!key) {
+				jsonPlain(res, 400, { ok: false, error: "缺少 key" });
+				return;
+			}
+			try {
+				const result = await biliQrPoll(key);
+				jsonPlain(res, 200, result);
+			} catch (err) {
+				jsonPlain(res, 502, { ok: false, error: `轮询失败：${err.message}` });
+			}
 			return;
 		}
 
@@ -2107,7 +2218,7 @@ async function main() {
 
 	/** 启一个弹幕连接；改直播间号时会先停掉旧的再启新的 */
 	function startClient() {
-		if (demo) return;
+		if (demo || useListener) return;
 		client?.stop();
 		runtime.connected = false;
 		runtime.reason = "连接中";
