@@ -1314,6 +1314,9 @@ async function main() {
 		connected: demo || useListener,
 		reason: demo ? "demo" : useListener ? "等待监听器事件" : "启动中",
 		liveStatus: null,
+		/** B 站登录态（cookie）是否有效：null=未知，false=失效（收不到礼物） */
+		authOk: null,
+		authReason: "",
 	};
 	/** 监听器模式：最近一次收到 ingest 的时间，用来判断「有没有在推」 */
 	let lastIngestAt = 0;
@@ -1899,6 +1902,18 @@ async function main() {
 			runtime.connected = true;
 			runtime.reason = "监听器推送中";
 			const kind = String(payload.type ?? "gift");
+			// 监听器上报的 B 站登录态：失效时页面要显红条，不能只是安静地收不到礼物
+			if (kind === "auth") {
+				runtime.authOk = payload.ok === true;
+				runtime.authReason = String(payload.reason ?? "");
+				if (runtime.authOk) {
+					log(`🔐 监听器上报：B 站登录态有效（uid=${payload.uid ?? "?"}）`);
+				} else {
+					log(`⚠️ B 站登录已失效：${runtime.authReason}（收不到礼物）`);
+				}
+				jsonPlain(res, 200, { ok: true });
+				return;
+			}
 			// 心跳只是存活信号，不改任何计时状态
 			if (kind === "ping") {
 				runtime.reason = "已连接（监听器心跳正常）";

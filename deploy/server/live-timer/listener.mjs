@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * B 站直播事件转发器（用现成库 bili-live-listener 抓，不自己解协议）
  *
@@ -10,12 +11,13 @@
  * 启动：node listener.mjs
  */
 
-import { readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
 
 import { BiliLive } from "bili-live-listener";
 
-const MAIN_CONFIG = process.env.LIVE_TIMER_CONFIG || "/var/lib/live-timer/config.json";
+const MAIN_CONFIG =
+	process.env.LIVE_TIMER_CONFIG || "/var/lib/live-timer/config.json";
 const INGEST = process.env.LISTENER_INGEST || "http://127.0.0.1:8848/ingest";
 const RECONNECT_MS = 5000;
 const UA =
@@ -26,13 +28,17 @@ const UA =
  * 所以 token 由我们自己按 wbi 签名取，再交给 BiliLive 去连（解析仍走这个库）。
  */
 const WBI_TAB = [
-	46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9,
-	42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
+	46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+	33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
 ];
 
 async function wbiKey(cookie) {
 	const res = await fetch("https://api.bilibili.com/x/web-interface/nav", {
-		headers: { "User-Agent": UA, Referer: "https://www.bilibili.com/", Cookie: cookie },
+		headers: {
+			"User-Agent": UA,
+			Referer: "https://www.bilibili.com/",
+			Cookie: cookie,
+		},
 	});
 	const json = await res.json();
 	const img = json?.data?.wbi_img?.img_url ?? "";
@@ -70,7 +76,9 @@ function signed(params, mixin) {
 				`${encodeURIComponent(k)}=${encodeURIComponent(String(all[k]).replace(/[!'()*]/g, ""))}`,
 		)
 		.join("&");
-	const wRid = createHash("md5").update(query + mixin).digest("hex");
+	const wRid = createHash("md5")
+		.update(query + mixin)
+		.digest("hex");
 	return `${query}&w_rid=${wRid}`;
 }
 
@@ -89,9 +97,38 @@ async function getToken(roomId, rawCookie) {
 	);
 	const json = await res.json();
 	if (json?.code !== 0 || !json?.data?.token) {
-		throw new Error(`getDanmuInfo 失败 code=${json?.code} message=${json?.message}`);
+		throw new Error(
+			`getDanmuInfo 失败 code=${json?.code} message=${json?.message}`,
+		);
 	}
 	return { token: json.data.token, uid };
+}
+
+/** 只查登录态：nav 的 mid 有值说明 cookie 有效 */
+async function probeLogin(cookie) {
+	try {
+		const res = await fetch("https://api.bilibili.com/x/web-interface/nav", {
+			headers: {
+				"User-Agent": UA,
+				Referer: "https://www.bilibili.com/",
+				Cookie: cookie,
+			},
+		});
+		const json = await res.json();
+		return { uid: Number(json?.data?.mid) || 0, code: Number(json?.code) || 0 };
+	} catch (err) {
+		return { uid: 0, code: -1, error: err.message };
+	}
+}
+
+let lastAuthOk = null;
+async function reportAuth(ok, uid, reason) {
+	const changed = lastAuthOk !== ok;
+	lastAuthOk = ok;
+	// 每次都上报（计时器重启后会重新需要这份状态），只在状态变化时打日志
+	await ingest({ type: "auth", ok, uid, reason });
+	if (changed)
+		log(ok ? `🔐 登录态有效（uid=${uid}）` : `⚠️ 已上报登录失效：${reason}`);
 }
 
 function log(...args) {
@@ -168,9 +205,29 @@ async function main() {
 		log(
 			"⚠️ 这次没拿到 uid（cookie 可能已失效）：B 站只会稀疏推送，礼物很可能收不到；请在网页「登录 Cookie」里换成新的 SESSDATA",
 		);
+		await reportAuth(
+			false,
+			0,
+			"cookie 失效（nav 返回 -101），需要在网页重新填 SESSDATA",
+		);
 	} else {
 		log(`🔐 登录态就绪：uid=${uid}，房号=${roomId}，key 长度=${token.length}`);
+		await reportAuth(true, uid, "");
 	}
+
+	// 每 5 分钟复查一次登录态，失效立刻上报（页面会显示红条）
+	setInterval(async () => {
+		const probe = await probeLogin(cookie);
+		if (probe.uid > 0) {
+			await reportAuth(true, probe.uid, "");
+		} else {
+			await reportAuth(
+				false,
+				0,
+				`cookie 已失效（nav code=${probe.code}），需要在网页重新填 SESSDATA`,
+			);
+		}
+	}, 5 * 60_000);
 
 	let stopped = false;
 	const connect = async () => {

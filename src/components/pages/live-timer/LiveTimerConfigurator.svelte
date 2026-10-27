@@ -94,6 +94,9 @@ interface RuntimeInfo {
 	addedMs: number;
 	/** 1=直播中，0=未开播（未开播时 B 站不推礼物事件） */
 	liveStatus?: number | null;
+	/** B 站登录态：false 表示 cookie 已失效，收不到礼物 */
+	authOk?: boolean | null;
+	authReason?: string;
 }
 
 /** 服务器记录下来的最近礼物（含没加时的），用来配礼物表 */
@@ -426,6 +429,8 @@ async function control(action: string, minutes?: number): Promise<void> {
 					data.state.liveStatus === undefined || data.state.liveStatus === null
 						? null
 						: Number(data.state.liveStatus),
+				authOk: data.state.authOk ?? null,
+				authReason: String(data.state.authReason ?? ""),
 			};
 		}
 		if (action === "start") ctlMsg = "已重新开局";
@@ -525,6 +530,8 @@ async function refreshRuntime(): Promise<void> {
 				data.liveStatus === undefined || data.liveStatus === null
 					? null
 					: Number(data.liveStatus),
+			authOk: data.authOk ?? null,
+			authReason: String(data.authReason ?? ""),
 		};
 	} catch {
 		// 拉不到就保持上一次的状态
@@ -677,6 +684,16 @@ function downloadConfig(): void {
 </script>
 
 <div class="configurator">
+	{#if loggedIn && runtime?.authOk === false}
+		<div class="auth-alert">
+			<strong>B 站登录已失效，现在收不到礼物</strong>
+			<span>{runtime.authReason || "cookie 已过期"}</span>
+			<span class="auth-alert-tip">
+				→ 在下面「登录 Cookie」里重新填一条 SESSDATA 即可，保存后自动重连。
+			</span>
+		</div>
+	{/if}
+
 	{#if loggedIn}
 		<div class="savebar">
 			<span class="pill" class:off={!runtime?.connected}>{runtimeLabel}</span>
@@ -1043,6 +1060,28 @@ function downloadConfig(): void {
 <style>
 	.configurator {
 		width: 100%;
+	}
+
+	.auth-alert {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		margin-bottom: 0.75rem;
+		padding: 0.7rem 0.9rem;
+		border: 1px solid #f43f5e;
+		border-left-width: 4px;
+		border-radius: 0.6rem;
+		background-color: rgba(244, 63, 94, 0.12);
+		color: #b91c1c;
+		font-size: 0.8rem;
+	}
+
+	.auth-alert strong {
+		font-size: 0.86rem;
+	}
+
+	.auth-alert-tip {
+		opacity: 0.8;
 	}
 
 	.savebar {
