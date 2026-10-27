@@ -20,6 +20,8 @@
 import {
 	createHash,
 	createHmac,
+	constants as cryptoConstants,
+	publicEncrypt,
 	randomBytes,
 	scryptSync,
 	timingSafeEqual,
@@ -141,6 +143,34 @@ function verifySession(secret, token) {
 	const exp = Number(expStr);
 	if (!Number.isFinite(exp) || exp < Date.now()) return null;
 	return { exp };
+}
+
+/* ---------------------------------------------------------------- B 站 cookie 续期 */
+
+/**
+ * B 站 cookie 续期（参考 bilibili-api-python 的 login/credential 实现）：
+ *   cookie/info → refresh?  →  CorrespondPath = hex(RSA-OAEP-SHA256("refresh_"+ts))
+ *   → GET www.bilibili.com/correspond/1/<path> 抓 refresh_csrf
+ *   → POST cookie/refresh 换新 SESSDATA/bili_jct/refresh_token
+ *   → POST confirm/refresh 确认（用「旧」的 refresh_token）
+ */
+const BILI_PUBKEY = `-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDLgd2OAkcGVtoE3ThUREbio0Eg
+Uc/prcajMKXvkCKFCWhJYJcLkcM2DKKcSeFpD/j6Boy538YXnR6VhcuUJOhH2x71
+nzPjfdTcqMz7djHum0qSZA0AyCBDABUqCrfNgCiJ00Ra7GmRj+YCK1NJEuewlb40
+JNrRuoEUXpabUzGB8QIDAQAB
+-----END PUBLIC KEY-----`;
+
+function correspondPath(ts = Date.now()) {
+	const encrypted = publicEncrypt(
+		{
+			key: BILI_PUBKEY,
+			padding: cryptoConstants.RSA_PKCS1_OAEP_PADDING,
+			oaepHash: "sha256",
+		},
+		Buffer.from(`refresh_${ts}`, "utf8"),
+	);
+	return encrypted.toString("hex");
 }
 
 /* ------------------------------------------------------------------ 可在线编辑的配置 */
@@ -1634,6 +1664,221 @@ async function main() {
 		})();
 	}
 
+	/* ---------- cookie 续期 ---------- */
+
+	function cookieJarOf(cookieStr) {
+		const jar = {};
+		for (const part of String(cookieStr ?? "").split(";")) {
+			const idx = part.indexOf("=");
+			if (idx > 0) jar[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
+		}
+		return jar;
+	}
+
+	async function freshBuvid3() {
+		try {
+			const res = await fetch(
+				"https://api.bilibili.com/x/frontend/finger/spi",
+				{ headers: { "User-Agent": UA } },
+			);
+			const json = await res.json();
+			return String(json?.data?.b_3 ?? "");
+		} catch {
+			return "";
+		}
+	}
+
+	async function biliCookieHeader(extraBuvid = false) {
+		const jar = cookieJarOf(config.cookie);
+		if (extraBuvid || !jar.buvid3) {
+			const buvid = await freshBuvid3();
+			if (buvid) jar.buvid3 = buvid;
+		}
+		return Object.entries(jar)
+			.map(([k, v]) => `${k}=${v}`)
+			.join("; ");
+	}
+
+	/** 问 B 站：这个 cookie 需不需要续期 */
+	async function checkRefreshNeeded() {
+		const jar = cookieJarOf(config.cookie);
+		const csrf = jar.bili_jct ?? "";
+		const res = await fetch(
+			`https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=${encodeURIComponent(csrf)}`,
+			{
+				headers: {
+					"User-Agent": UA,
+					Referer: "https://www.bilibili.com/",
+					Cookie: await biliCookieHeader(true),
+				},
+			},
+		);
+		const json = await res.json();
+		if (json?.code !== 0) {
+			throw new Error(`cookie/info code=${json?.code} ${json?.message ?? ""}`);
+		}
+		return { refresh: Boolean(json?.data?.refresh) };
+	}
+
+	/** 真的续期：换一套新的 SESSDATA/bili_jct/refresh_token 并落盘 */
+	async function refreshCookie() {
+		const jar = cookieJarOf(config.cookie);
+		const biliJct = jar.bili_jct ?? "";
+		const refreshToken = String(config.refreshToken ?? "");
+		if (!biliJct || !refreshToken) {
+			throw new Error("缺少 bili_jct 或 refresh_token，请重新扫码登录");
+		}
+		const cookieHeader = await biliCookieHeader(true);
+
+		// ① 抓 refresh_csrf
+		const path = correspondPath();
+		const csrfRes = await fetch(
+			`https://www.bilibili.com/correspond/1/${path}`,
+			{
+				headers: {
+					"User-Agent": UA,
+					Referer: "https://www.bilibili.com/",
+					Cookie: cookieHeader,
+				},
+			},
+		);
+		const html = await csrfRes.text();
+		const matched = html.match(/<div id="1-name">(.+?)<\/div>/);
+		if (!matched) {
+			throw new Error("没抓到 refresh_csrf（correspondPath 过期或被风控）");
+		}
+
+		// ② 换新 cookie
+		const body = new URLSearchParams({
+			csrf: biliJct,
+			refresh_csrf: matched[1],
+			source: "main_web",
+			refresh_token: refreshToken,
+		});
+		const res = await fetch(
+			"https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+			{
+				method: "POST",
+				headers: {
+					"User-Agent": UA,
+					Referer: "https://www.bilibili.com/",
+					"content-type": "application/x-www-form-urlencoded",
+					Cookie: cookieHeader,
+				},
+				body,
+			},
+		);
+		const json = await res.json();
+		if (json?.code !== 0) {
+			throw new Error(
+				`cookie/refresh code=${json?.code} ${json?.message ?? ""}`,
+			);
+		}
+		const newJar = {};
+		const setCookies =
+			typeof res.headers.getSetCookie === "function"
+				? res.headers.getSetCookie()
+				: [];
+		for (const line of setCookies) {
+			const pair = String(line).split(";")[0];
+			const idx = pair.indexOf("=");
+			if (idx > 0)
+				newJar[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+		}
+		const sessdata = newJar.SESSDATA ?? "";
+		const newBiliJct = newJar.bili_jct ?? "";
+		const dede = newJar.DedeUserID ?? jar.DedeUserID ?? "";
+		const newRefreshToken = String(json?.data?.refresh_token ?? "");
+		if (!sessdata || !newBiliJct) {
+			throw new Error("续期返回里没有新的 SESSDATA/bili_jct");
+		}
+
+		// ③ 确认（用「旧」的 refresh_token）
+		try {
+			await fetch(
+				"https://passport.bilibili.com/x/passport-login/web/confirm/refresh",
+				{
+					method: "POST",
+					headers: {
+						"User-Agent": UA,
+						Referer: "https://www.bilibili.com/",
+						"content-type": "application/x-www-form-urlencoded",
+						Cookie: [
+							`SESSDATA=${sessdata}`,
+							`bili_jct=${newBiliJct}`,
+							dede ? `DedeUserID=${dede}` : "",
+						]
+							.filter(Boolean)
+							.join("; "),
+					},
+					body: new URLSearchParams({
+						csrf: newBiliJct,
+						refresh_token: refreshToken,
+					}),
+				},
+			);
+		} catch (err) {
+			log(`⚠️ confirm/refresh 失败（不影响新 cookie）：${err.message}`);
+		}
+
+		// ③.5 先用新 cookie 验证一次，验证不过就不落盘（保住旧凭证）
+		const verifyRes = await fetch(
+			"https://api.bilibili.com/x/web-interface/nav",
+			{
+				headers: {
+					"User-Agent": UA,
+					Referer: "https://www.bilibili.com/",
+					Cookie: [
+						`SESSDATA=${sessdata}`,
+						`bili_jct=${newBiliJct}`,
+						dede ? `DedeUserID=${dede}` : "",
+					]
+						.filter(Boolean)
+						.join("; "),
+				},
+			},
+		);
+		const verifyJson = await verifyRes.json();
+		if (!verifyJson?.data?.mid) {
+			throw new Error(
+				`续期后验证失败（nav code=${verifyJson?.code}），已保留旧 cookie`,
+			);
+		}
+
+		// ④ 落盘
+		config.cookie = [
+			`SESSDATA=${sessdata}`,
+			`bili_jct=${newBiliJct}`,
+			dede ? `DedeUserID=${dede}` : "",
+		]
+			.filter(Boolean)
+			.join("; ");
+		config.refreshToken = newRefreshToken;
+		await persistConfig();
+		runtime.authOk = true;
+		runtime.authReason = "";
+		log("🔁 cookie 续期成功，已保存新凭证（监听器会自动重连）");
+		return true;
+	}
+
+	/** 定时检查：需要续期就续，失败只告警不崩 */
+	async function refreshIfNeeded() {
+		if (demo) return;
+		if (!String(config.cookie ?? "").trim()) return;
+		try {
+			const { refresh } = await checkRefreshNeeded();
+			if (!refresh) {
+				log("🔐 cookie 检查：暂不需要续期");
+				return;
+			}
+			log("ℹ️ B 站提示该续期 cookie 了，开始刷新…");
+			await refreshCookie();
+		} catch (err) {
+			log(`⚠️ cookie 续期失败：${err.message}`);
+			runtime.authReason = `cookie 续期失败：${err.message}，请重新扫码登录`;
+		}
+	}
+
 	/** 扫码登录①：向 B 站要一张登录二维码 */
 	async function biliQrGenerate() {
 		const res = await fetch(
@@ -1918,6 +2163,34 @@ async function main() {
 				jsonPlain(res, 200, result);
 			} catch (err) {
 				jsonPlain(res, 502, { ok: false, error: `轮询失败：${err.message}` });
+			}
+			return;
+		}
+
+		if (req.method === "POST" && url.pathname === "/admin/cookie/refresh") {
+			const auth = await adminAuth(req);
+			if (!auth.ok) {
+				jsonPlain(res, auth.code, { ok: false, error: auth.error });
+				return;
+			}
+			try {
+				const { refresh } = await checkRefreshNeeded();
+				if (!refresh) {
+					jsonPlain(res, 200, {
+						ok: true,
+						refreshed: false,
+						message: "B 站说现在不需要续期（cookie 还早）",
+					});
+					return;
+				}
+				await refreshCookie();
+				jsonPlain(res, 200, {
+					ok: true,
+					refreshed: true,
+					message: "续期成功，已保存新凭证",
+				});
+			} catch (err) {
+				jsonPlain(res, 500, { ok: false, error: err.message });
 			}
 			return;
 		}
@@ -2246,6 +2519,10 @@ async function main() {
 			'🧪 demo 模式：不连 B 站，用 POST /control {"action":"demoGift"} 模拟礼物',
 		);
 	}
+
+	// cookie 续期检查：启动 30 秒后一次，之后每 6 小时一次
+	setTimeout(() => void refreshIfNeeded(), 30_000);
+	setInterval(() => void refreshIfNeeded(), 6 * 60 * 60 * 1000);
 
 	// 开播状态只在连接时取一次会过期（中途开播/下播都不会更新），每 5 分钟刷一次
 	setInterval(async () => {

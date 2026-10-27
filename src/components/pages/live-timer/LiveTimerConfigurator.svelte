@@ -150,6 +150,34 @@ let qrKey = $state("");
 let qrMsg = $state("");
 let qrBusy = $state(false);
 let qrTimer: ReturnType<typeof setInterval> | undefined;
+let refreshBusy = $state(false);
+let refreshMsg = $state("");
+
+async function checkRefresh(): Promise<void> {
+	if (refreshBusy) return;
+	refreshBusy = true;
+	refreshMsg = "";
+	try {
+		const res = await fetch(`${apiBase}/admin/cookie/refresh`, {
+			method: "POST",
+			headers: { authorization: `Bearer ${token}` },
+		});
+		const data = (await res.json().catch(() => ({}))) as {
+			ok?: boolean;
+			refreshed?: boolean;
+			message?: string;
+			error?: string;
+		};
+		if (!res.ok || !data.ok)
+			throw new Error(data.error ?? `HTTP ${res.status}`);
+		refreshMsg = data.message ?? (data.refreshed ? "已续期" : "暂不需要续期");
+		if (data.refreshed) await reloadFromServer();
+	} catch (err) {
+		refreshMsg = `失败：${err instanceof Error ? err.message : String(err)}`;
+	} finally {
+		refreshBusy = false;
+	}
+}
 
 async function startQrLogin(): Promise<void> {
 	if (qrBusy) return;
@@ -901,7 +929,16 @@ function downloadConfig(): void {
 						>
 							{qrBusy ? "生成中…" : "扫码登录（自动填 Cookie）"}
 						</button>
+						<button
+							type="button"
+							class="ghost"
+							onclick={checkRefresh}
+							disabled={refreshBusy}
+						>
+							{refreshBusy ? "检查中…" : "检查/续期 Cookie"}
+						</button>
 						{#if qrMsg}<span class="qr-msg">{qrMsg}</span>{/if}
+						{#if refreshMsg}<span class="qr-msg">{refreshMsg}</span>{/if}
 						{#if qrVisible && qrDataUrl}
 							<img class="qr-img" src={qrDataUrl} alt="B 站登录二维码" />
 						{/if}
