@@ -567,13 +567,14 @@ function giftToMs(config, data) {
 	const coinType = String(data.coin_type ?? "");
 	const num = Math.max(1, numberFrom(data.num) || 1);
 
-	if (config.ignoreSilverGifts && coinType === "silver") return 0;
-
+	// 礼物表优先：显式配置过的礼物，即使免费/银瓜子也按表里的分钟数走
 	const rule = config.gifts[giftId] ?? config.gifts[name];
 	if (rule !== undefined) {
 		const minutes = typeof rule === "number" ? rule : numberFrom(rule.minutes);
 		return Math.round(minutes * 60_000) * (rule.perUnit === true ? num : 1);
 	}
+
+	if (config.ignoreSilverGifts && coinType === "silver") return 0;
 
 	const cny =
 		coinType === "gold" ? (numberFrom(data.price) / config.priceUnit) * num : 0;
