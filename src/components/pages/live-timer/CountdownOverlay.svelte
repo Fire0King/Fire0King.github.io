@@ -390,7 +390,7 @@ onMount(() => {
 		{#if showRules && ruleHints.length > 0}
 			<ul class="rules">
 				{#each ruleHints as rule (rule.name)}
-					<li class="rule" class:minus={rule.minutes < 0}>
+					<li class="rule">
 						{#if iconOf(rule.name)}
 							<img
 								class="rule-icon"
@@ -602,17 +602,14 @@ onMount(() => {
 	}
 
 	.rule-name {
-		opacity: 0.9;
+		color: var(--accent);
 	}
 
+	/* 加减同一色，跟进度条（--accent）保持一致 */
 	.rule-rate {
-		color: #4ade80;
+		color: var(--accent);
 		font-weight: 600;
 		font-variant-numeric: tabular-nums;
-	}
-
-	.rule.minus .rule-rate {
-		color: #f87171;
 	}
 
 	.head {
