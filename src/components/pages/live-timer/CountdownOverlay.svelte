@@ -162,6 +162,32 @@ const blindBoxOn = $derived(
 	mock ? true : Number(snap?.blindBoxPerYuan ?? 0) > 0,
 );
 
+interface HintItem {
+	key: string;
+	name: string;
+	rate: string;
+	icon: string;
+}
+
+/** 横向滚动横幅里的一条条提示：礼物价目 + 盲盒 */
+const hintItems = $derived.by(() => {
+	const list: HintItem[] = ruleHints.map((rule) => ({
+		key: `rule-${rule.name}`,
+		name: rule.name,
+		rate: ruleText(rule.minutes),
+		icon: iconOf(rule.name),
+	}));
+	if (blindBoxOn) {
+		list.push({
+			key: "blind-box",
+			name: "盲盒也加时长哦~",
+			rate: "",
+			icon: `${BASE}live-timer/gift/blind-box.webp`,
+		});
+	}
+	return list;
+});
+
 /**
  * 把「每个多少分钟」翻译成观众一眼能懂的价目：
  * 0.1 → 10 个 = +1 分钟；2 → 1 个 = +2 分钟
@@ -408,38 +434,33 @@ onMount(() => {
 			</ul>
 		{/if}
 
-		{#if showRules && (ruleHints.length > 0 || blindBoxOn)}
-			<ul class="rules">
-				{#each ruleHints as rule (rule.name)}
-					<li class="rule">
-						{#if iconOf(rule.name)}
-							<img
-								class="rule-icon"
-								src={iconOf(rule.name)}
-								alt=""
-								onerror={(event) => {
-									event.currentTarget.style.display = "none";
-								}}
-							/>
-						{/if}
-						<span class="rule-name">{rule.name}</span>
-						<span class="rule-rate">{ruleText(rule.minutes)}</span>
-					</li>
-				{/each}
-				{#if blindBoxOn}
-					<li class="rule">
-						<img
-							class="rule-icon"
-							src={`${BASE}live-timer/gift/blind-box.webp`}
-							alt=""
-							onerror={(event) => {
-								event.currentTarget.style.display = "none";
-							}}
-						/>
-						<span class="rule-name">盲盒也加时长哦~</span>
-					</li>
-				{/if}
-			</ul>
+		{#if showRules && hintItems.length > 0}
+			<div class="ticker" class:still={hintItems.length < 2}>
+				<div class="ticker-track">
+					{#each [0, 1] as copy (copy)}
+						<div class="ticker-group" aria-hidden={copy === 1 ? "true" : undefined}>
+							{#each hintItems as item (item.key)}
+								<span class="rule">
+									{#if item.icon}
+										<img
+											class="rule-icon"
+											src={item.icon}
+											alt=""
+											onerror={(event) => {
+												event.currentTarget.style.display = "none";
+											}}
+										/>
+									{/if}
+									<span class="rule-name">{item.name}</span>
+									{#if item.rate}
+										<span class="rule-rate">{item.rate}</span>
+									{/if}
+								</span>
+							{/each}
+						</div>
+					{/each}
+				</div>
+			</div>
 		{/if}
 
 		<div class="card" class:paused={snap?.paused} class:over={over && overtime}>
@@ -599,20 +620,55 @@ onMount(() => {
 		box-shadow: 0 12px 40px rgba(80, 90, 120, 0.2);
 	}
 
-	.rules {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-		margin: 0;
-		padding: 0;
-		list-style: none;
+	/* 横向滚动横幅：内容复制两份，跑到 -50% 正好无缝接回开头 */
+	.ticker {
 		max-width: 460px;
+		overflow: hidden;
+		mask-image: linear-gradient(
+			to right,
+			transparent 0,
+			#000 18px,
+			#000 calc(100% - 18px),
+			transparent 100%
+		);
+		-webkit-mask-image: linear-gradient(
+			to right,
+			transparent 0,
+			#000 18px,
+			#000 calc(100% - 18px),
+			transparent 100%
+		);
+	}
+
+	.ticker-track {
+		display: flex;
+		width: max-content;
+		animation: ticker-scroll 22s linear infinite;
+	}
+
+	.ticker.still .ticker-track {
+		animation: none;
+	}
+
+	.ticker-group {
+		display: flex;
+	}
+
+	@keyframes ticker-scroll {
+		from {
+			transform: translateX(0);
+		}
+		to {
+			transform: translateX(-50%);
+		}
 	}
 
 	.rule {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
+		/* 用 margin 而不是 gap：两份内容宽度完全一致，-50% 才无缝 */
+		margin-right: 10px;
 		padding: 5px 10px 5px 6px;
 		border-radius: 999px;
 		border: 1px solid rgba(255, 255, 255, 0.12);
@@ -886,6 +942,9 @@ onMount(() => {
 
 	@media (prefers-reduced-motion: reduce) {
 		.time.alert {
+			animation: none;
+		}
+		.ticker-track {
 			animation: none;
 		}
 		.toasts {
