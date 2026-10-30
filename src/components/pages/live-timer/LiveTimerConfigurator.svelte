@@ -17,6 +17,8 @@ interface GiftRow {
 	id: number;
 	name: string;
 	minutes: number;
+	/** true = 分钟数按礼物数量翻倍（×100 就是 100 倍） */
+	perUnit: boolean;
 }
 
 const BASE = import.meta.env.BASE_URL;
@@ -74,7 +76,7 @@ interface ServerConfig {
 	initialMinutes: number;
 	cnyToMinutes: number;
 	ignoreSilverGifts: boolean;
-	gifts: Record<string, number>;
+	gifts: Record<string, number | { minutes: number; perUnit?: boolean }>;
 	guards: Record<string, number>;
 	caps: {
 		perGiftMinutes: number;
@@ -289,15 +291,21 @@ function applyServerConfig(config: ServerConfig): void {
 	cookieInput = "";
 	clearCookie = false;
 	const rows: GiftRow[] = [];
-	for (const [name, minutes] of Object.entries(config.gifts ?? {})) {
-		rows.push(makeGiftRow(name, Number(minutes) || 0));
+	for (const [name, value] of Object.entries(config.gifts ?? {})) {
+		if (value && typeof value === "object") {
+			rows.push(
+				makeGiftRow(name, Number(value.minutes) || 0, value.perUnit === true),
+			);
+		} else {
+			rows.push(makeGiftRow(name, Number(value) || 0));
+		}
 	}
 	giftRows = rows.length > 0 ? rows : [makeGiftRow("", 1)];
 }
 
-function makeGiftRow(name: string, minutes: number): GiftRow {
+function makeGiftRow(name: string, minutes: number, perUnit = false): GiftRow {
 	rowSeq += 1;
-	return { id: rowSeq, name, minutes };
+	return { id: rowSeq, name, minutes, perUnit };
 }
 
 /** 把「最近收到的礼物」里的某一条加进礼物表（已存在就只提示） */
@@ -706,11 +714,13 @@ $effect(() => {
 });
 
 const giftMap = $derived.by(() => {
-	const map: Record<string, number> = {};
+	const map: Record<string, number | { minutes: number; perUnit: boolean }> =
+		{};
 	for (const row of giftRows) {
 		const name = row.name.trim();
 		if (!name) continue;
-		map[name] = Number(row.minutes) || 0;
+		const minutes = Number(row.minutes) || 0;
+		map[name] = row.perUnit ? { minutes, perUnit: true } : minutes;
 	}
 	return map;
 });
@@ -960,6 +970,10 @@ function downloadConfig(): void {
 							<input type="text" placeholder="礼物名，如 小花花" bind:value={row.name} />
 							<input class="minutes" type="number" min="-1440" step="0.1" bind:value={row.minutes} />
 							<span class="unit">分钟</span>
+							<label class="per-unit" title="勾选后按礼物数量翻倍：×100 就是 100 倍">
+								<input type="checkbox" bind:checked={row.perUnit} />
+								<span>按数量</span>
+							</label>
 							<button
 								type="button"
 								class="ghost danger"
@@ -1412,6 +1426,23 @@ function downloadConfig(): void {
 		font-variant-numeric: tabular-nums;
 	}
 
+	.per-unit {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		font-size: 0.7rem;
+		color: var(--content-meta);
+		white-space: nowrap;
+		cursor: pointer;
+	}
+
+	.per-unit input {
+		accent-color: var(--primary);
+		width: 0.9rem;
+		height: 0.9rem;
+		cursor: pointer;
+	}
+
 	.unit {
 		font-size: 0.74rem;
 		color: var(--content-meta);
@@ -1731,13 +1762,30 @@ function downloadConfig(): void {
 
 	.row {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 5.5rem auto auto;
+		grid-template-columns: minmax(0, 1fr) 5.5rem auto auto auto;
 		align-items: center;
 		gap: 0.45rem;
 	}
 
 	.row input {
 		min-width: 0;
+	}
+
+	.per-unit {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		font-size: 0.7rem;
+		color: var(--content-meta);
+		white-space: nowrap;
+		cursor: pointer;
+	}
+
+	.per-unit input {
+		accent-color: var(--primary);
+		width: 0.9rem;
+		height: 0.9rem;
+		cursor: pointer;
 	}
 
 	.unit {
