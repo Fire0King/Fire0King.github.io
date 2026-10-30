@@ -21,7 +21,7 @@
  *   mockMinutes=120        预览模式下的剩余分钟数
  *   api=/live-timer-api    控制接口前缀（默认算出来的那个）
  */
-import { onMount } from "svelte";
+import { onMount, tick } from "svelte";
 
 interface GiftEvent {
 	kind?: string;
@@ -53,6 +53,8 @@ interface Snapshot {
 	recent: GiftEvent[];
 	lastGift: GiftEvent | null;
 	rules?: GiftRule[];
+	/** >0 表示盲盒按开奖价值加时，叠层上会提示一句 */
+	blindBoxPerYuan?: number;
 	connected?: boolean;
 	reason?: string;
 }
@@ -70,6 +72,8 @@ const TOAST_LIFETIME = 7000;
 const GIFT_ICONS: Record<string, string> = {
 	人气票: `${BASE}live-timer/gift/renqi-piao.webp`,
 	粉丝团灯牌: `${BASE}live-timer/gift/fans-medal.webp`,
+	盲盒: `${BASE}live-timer/gift/blind-box.webp`,
+	心动盲盒: `${BASE}live-timer/gift/blind-box.webp`,
 };
 
 /** 预览模式没有服务端，拿一份示例价目撑住版式 */
@@ -103,8 +107,19 @@ let apiBase = $state(`${BASE}live-timer-api`);
 let pollUrl = $state(`${BASE}api/live-timer.json`);
 
 let toasts = $state<Toast[]>([]);
+let toastList = $state<HTMLUListElement | null>(null);
 let seenAt = 0;
 let toastId = 0;
+
+/** 礼物提示是「滚动」的：新的一条从底部进，旧的往上滚出视野 */
+$effect(() => {
+	toasts.length;
+	void tick().then(() => {
+		const list = toastList;
+		if (!list) return;
+		list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
+	});
+});
 
 let token = $state("");
 let busy = $state(false);
@@ -140,6 +155,11 @@ const ruleHints = $derived(
 	(snap?.rules ?? (mock ? MOCK_RULES : [])).filter(
 		(rule) => Number.isFinite(rule.minutes) && rule.minutes !== 0,
 	),
+);
+
+/** 盲盒开着才提示「盲盒也加时长哦~」，关了就不画这块饼 */
+const blindBoxOn = $derived(
+	mock ? true : Number(snap?.blindBoxPerYuan ?? 0) > 0,
 );
 
 /**
@@ -185,7 +205,8 @@ function formatSpan(ms: number): string {
 function addToast(event: GiftEvent): void {
 	toastId += 1;
 	const id = toastId;
-	toasts = [...toasts.slice(-2), { ...event, id }];
+	// 多留几条在 DOM 里（只是被 overflow 挡住），滚上去的观感才连续
+	toasts = [...toasts.slice(-5), { ...event, id }];
 	setTimeout(() => {
 		toasts = toasts.filter((t) => t.id !== id);
 	}, TOAST_LIFETIME);
@@ -376,7 +397,7 @@ onMount(() => {
 >
 	<div class="stack">
 		{#if showGifts && toasts.length > 0}
-			<ul class="toasts">
+			<ul class="toasts" bind:this={toastList}>
 				{#each toasts as toast (toast.id)}
 					<li class="toast">
 						<span class="toast-user">{toast.user}</span>
@@ -387,7 +408,7 @@ onMount(() => {
 			</ul>
 		{/if}
 
-		{#if showRules && ruleHints.length > 0}
+		{#if showRules && (ruleHints.length > 0 || blindBoxOn)}
 			<ul class="rules">
 				{#each ruleHints as rule (rule.name)}
 					<li class="rule">
@@ -405,6 +426,19 @@ onMount(() => {
 						<span class="rule-rate">{ruleText(rule.minutes)}</span>
 					</li>
 				{/each}
+				{#if blindBoxOn}
+					<li class="rule">
+						<img
+							class="rule-icon"
+							src={`${BASE}live-timer/gift/blind-box.webp`}
+							alt=""
+							onerror={(event) => {
+								event.currentTarget.style.display = "none";
+							}}
+						/>
+						<span class="rule-name">盲盒也加时长哦~</span>
+					</li>
+				{/if}
 			</ul>
 		{/if}
 
@@ -712,6 +746,7 @@ onMount(() => {
 		opacity: 0.5;
 	}
 
+	/* 固定高度 + 原生平滑滚动：新的一条从底部进，旧的往上滚出去 */
 	.toasts {
 		display: flex;
 		flex-direction: column;
@@ -720,6 +755,17 @@ onMount(() => {
 		padding: 0;
 		list-style: none;
 		max-width: 340px;
+		max-height: 112px;
+		overflow: hidden;
+		scroll-behavior: smooth;
+		scrollbar-width: none;
+		/* 上边缘淡出，滚出去的提示不会硬切 */
+		mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
+		-webkit-mask-image: linear-gradient(
+			to bottom,
+			transparent 0,
+			#000 14px
+		);
 	}
 
 	.toast {
@@ -731,7 +777,7 @@ onMount(() => {
 		background: rgba(14, 15, 22, 0.66);
 		border: 1px solid rgba(255, 255, 255, 0.12);
 		font-size: 12.5px;
-		animation: toast-in 0.35s ease-out both;
+		flex: none;
 	}
 
 	.light .toast {
@@ -756,17 +802,6 @@ onMount(() => {
 		color: var(--accent);
 		font-weight: 600;
 		font-variant-numeric: tabular-nums;
-	}
-
-	@keyframes toast-in {
-		from {
-			opacity: 0;
-			transform: translateY(6px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
 	}
 
 	.admin {
@@ -850,9 +885,11 @@ onMount(() => {
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.time.alert,
-		.toast {
+		.time.alert {
 			animation: none;
+		}
+		.toasts {
+			scroll-behavior: auto;
 		}
 	}
 </style>

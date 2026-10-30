@@ -502,6 +502,8 @@ class TimerState {
 			recent: this.recent,
 			// 叠层顶部的「礼物价目」：由礼物表算出，改配置后叠层自动跟着变
 			rules: giftRuleHints(this.config),
+			// 盲盒开关（>0 = 按开奖价值加时），叠层据此决定要不要显示「盲盒也加时长哦~」
+			blindBoxPerYuan: numberFrom(this.config.blindBoxPerYuan),
 			...extra,
 		};
 	}
