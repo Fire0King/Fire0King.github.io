@@ -602,7 +602,12 @@ function giftRuleHints(config) {
 	return Object.entries(config.gifts ?? {})
 		.map(([name, minutes]) => ({ name, minutes: numberFrom(minutes) }))
 		.filter((rule) => rule.minutes !== 0)
-		.sort((a, b) => Math.abs(b.minutes) - Math.abs(a.minutes))
+		// 加时的排前面（观众先看到「能加多久」），同向再按量级降序
+		.sort(
+			(a, b) =>
+				Number(a.minutes < 0) - Number(b.minutes < 0) ||
+				Math.abs(b.minutes) - Math.abs(a.minutes),
+		)
 		.slice(0, 6);
 }
 
