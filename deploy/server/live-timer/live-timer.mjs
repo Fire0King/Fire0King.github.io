@@ -503,6 +503,11 @@ function numberFrom(value) {
 	return Number.isFinite(n) ? n : 0;
 }
 
+/** 盲盒开出什么的小尾巴，日志和礼物记录里用 */
+function openedText(opened) {
+	return opened ? `（开出 ${opened}）` : "";
+}
+
 /* ---------------- 极简 protobuf 读取（只为解 SEND_GIFT_V2） ---------------- */
 
 function readVarint(buf, start) {
@@ -559,8 +564,13 @@ function parseProtoFields(buf) {
 
 /**
  * SEND_GIFT_V2 的 data 是 base64 编码的 protobuf（SendGiftV2）：
- *   1 uid(int64) / 2 uname(string) / 5 guard_level / 10 repeated GiftItem
+ *   1 uid(int64) / 2 uname(string) / 5 guard_level / 9 BlindGift / 10 repeated GiftItem
  * GiftItem: 1 gift_id / 2 gift_name / 3 num / 5 price / 8 coin_type / 10 timestamp
+ * BlindGift: 2 original_gift_id / 3 original_gift_name / 6 original_gift_price
+ *
+ * 盲盒（gift_type=6）要注意：gift_list 里是「开出来的奖品」，真正花的钱在
+ * blind_gift.original_gift_price 里。只按奖品价格算会错得离谱
+ * （9 元的假面盲盒开出 2 元的南瓜假面，就被当成 2 元）。
  */
 function decodeSendGiftV2(base64) {
 	// B 站推的是 { dmscore, pb: "<base64 protobuf>" }，protobuf 在 pb 里
@@ -579,6 +589,25 @@ function decodeSendGiftV2(base64) {
 	const pick = (fields, n) => fields.find((f) => f.field === n);
 	const uid = pick(top, 1)?.value ?? 0;
 	const uname = pick(top, 2)?.bytes?.toString("utf8") ?? "";
+
+	// 盲盒信息（没开盲盒时不会有这一项）
+	const blindField = pick(top, 9);
+	let blindGift = null;
+	if (blindField?.bytes) {
+		const b = parseProtoFields(blindField.bytes);
+		const bg = (n) => b.find((x) => x.field === n);
+		const price = Number(bg(6)?.value ?? 0);
+		const name = bg(3)?.bytes?.toString("utf8") ?? "";
+		if (price > 0 || name) {
+			blindGift = {
+				configId: Number(bg(1)?.value ?? 0),
+				giftId: Number(bg(2)?.value ?? 0),
+				giftName: name,
+				price,
+			};
+		}
+	}
+
 	const gifts = top
 		.filter((f) => f.field === 10 && f.bytes)
 		.map((f) => {
@@ -589,12 +618,13 @@ function decodeSendGiftV2(base64) {
 				giftName: g(2)?.bytes?.toString("utf8") ?? "",
 				num: Number(g(3)?.value ?? 1),
 				price: Number(g(5)?.value ?? 0),
+				totalCoin: Number(g(7)?.value ?? 0),
 				coinType: g(8)?.bytes?.toString("utf8") ?? "",
 				timestamp: Number(g(10)?.value ?? 0),
 				batchComboId: g(12)?.bytes?.toString("utf8") ?? "",
 			};
 		});
-	return { uid, uname, gifts };
+	return { uid, uname, gifts, blindGift };
 }
 
 /** 礼物表 → 叠层顶部的价目提示（只留非 0 的规则，最多 6 条） */
@@ -1194,6 +1224,81 @@ async function selfTest(config) {
 	);
 	check("垃圾数据不会抛异常", decodeSendGiftV2("not-base64!!") !== undefined);
 
+	// 盲盒：gift_list 里是开出来的奖品，真正花掉的钱在 blind_gift.original_gift_price
+	const encVarint = (n) => {
+		const out = [];
+		let v = n;
+		while (v > 0x7f) {
+			out.push((v & 0x7f) | 0x80);
+			v = Math.floor(v / 128);
+		}
+		out.push(v);
+		return out;
+	};
+	const encTag = (field, wire) => encVarint(field * 8 + wire);
+	const encInt = (field, n) => [...encTag(field, 0), ...encVarint(n)];
+	const encStr = (field, s) => {
+		const bytes = [...Buffer.from(s, "utf8")];
+		return [...encTag(field, 2), ...encVarint(bytes.length), ...bytes];
+	};
+	const encMsg = (field, inner) => [
+		...encTag(field, 2),
+		...encVarint(inner.length),
+		...inner,
+	];
+	const blindPayload = Buffer.from([
+		...encInt(1, 777),
+		...encStr(2, "盲盒观众"),
+		...encMsg(9, [
+			...encInt(1, 9001),
+			...encInt(2, 36044),
+			...encStr(3, "假面盲盒"),
+			...encInt(6, 9000),
+		]),
+		...encMsg(10, [
+			...encInt(1, 36045),
+			...encStr(2, "南瓜假面"),
+			...encInt(3, 1),
+			...encInt(5, 2000),
+			...encStr(8, "gold"),
+			...encInt(10, 1700000001),
+		]),
+	]).toString("base64");
+	const decodedBox = decodeSendGiftV2(blindPayload);
+	check(
+		"盲盒能解出盒子名 / 实付价，奖品另存",
+		decodedBox?.blindGift?.giftName === "假面盲盒" &&
+			decodedBox?.blindGift?.price === 9000 &&
+			decodedBox?.blindGift?.giftId === 36044 &&
+			decodedBox?.gifts?.[0]?.giftName === "南瓜假面",
+	);
+	check(
+		"盲盒按盒子实付价折算（9 元 = 9 分钟，而不是奖品 2 元 = 2 分钟）",
+		giftToMs(
+			{ ...config, cnyToMinutes: 1, gifts: {} },
+			{
+				giftId: 36044,
+				giftName: "假面盲盒",
+				num: 1,
+				price: 9000,
+				coin_type: "gold",
+			},
+		) === 540_000,
+	);
+	check(
+		"盲盒可以用盒子名写礼物表",
+		giftToMs(
+			{ ...config, cnyToMinutes: 0, gifts: { 假面盲盒: 3 } },
+			{
+				giftId: 36044,
+				giftName: "假面盲盒",
+				num: 1,
+				price: 9000,
+				coin_type: "gold",
+			},
+		) === 180_000,
+	);
+
 	console.log("5) 网页配置校验");
 	const okRoom = normalizeEditable({
 		roomId: 1750753391,
@@ -1458,12 +1563,15 @@ async function main() {
 			num: Number(data.num) || 1,
 			price: Number(data.price) || 0,
 			coinType: String(data.coin_type ?? ""),
+			// 盲盒才有：开出来的奖品，纯粹用来展示
+			opened: data.opened ? String(data.opened) : undefined,
 		};
 		let ms = giftToMs(config, data);
 		if (config.debug) {
 			log(
 				`🔍 收到礼物 ${data.uname ?? "?"} ${data.giftName ?? "?"} ×${data.num} ` +
-					`coin=${data.coin_type} price=${data.price} giftId=${data.giftId} → ${(ms / 60_000).toFixed(2)} 分钟`,
+					`coin=${data.coin_type} price=${data.price} giftId=${data.giftId}` +
+					`${openedText(data.opened)} → ${(ms / 60_000).toFixed(2)} 分钟`,
 			);
 		}
 		if (ms < 0) {
@@ -1474,7 +1582,7 @@ async function main() {
 				kind: "gift",
 				user: String(data.uname ?? "观众"),
 				uid: Number(data.uid) || 0,
-				label: `${data.giftName ?? "礼物"}${Number(data.num) > 1 ? ` ×${data.num}` : ""}`,
+				label: `${data.giftName ?? "礼物"}${Number(data.num) > 1 ? ` ×${data.num}` : ""}${openedText(data.opened)}`,
 				giftId: String(data.giftId ?? ""),
 				deltaMs: ms,
 				at: Date.now(),
@@ -1507,7 +1615,7 @@ async function main() {
 			kind: "gift",
 			user: String(data.uname ?? "观众"),
 			uid: Number(data.uid) || 0,
-			label: `${data.giftName ?? "礼物"}${Number(data.num) > 1 ? ` ×${data.num}` : ""}`,
+			label: `${data.giftName ?? "礼物"}${Number(data.num) > 1 ? ` ×${data.num}` : ""}${openedText(data.opened)}`,
 			giftId: String(data.giftId ?? ""),
 		});
 		if (applied) {
@@ -2368,6 +2476,29 @@ async function main() {
 									: JSON.stringify(payload.data),
 							).slice(0, 600)}`,
 						);
+					} else if (parsed.blindGift) {
+						// 盲盒：花的是盒子钱，gift_list 只是开出来的奖品。
+						// 按奖品价格算会把 9 元的盒子当成 2 元（或反过来白送 20 分钟）。
+						const box = parsed.blindGift;
+						const opened = parsed.gifts
+							.map((g) => `${g.giftName}×${g.num}`)
+							.join("、");
+						const totalNum = parsed.gifts.reduce(
+							(sum, g) => sum + Math.max(1, Number(g.num) || 1),
+							0,
+						);
+						handleGift({
+							uid: parsed.uid,
+							uname: parsed.uname,
+							giftId: box.giftId,
+							giftName: box.giftName,
+							num: Math.max(1, totalNum),
+							price: box.price,
+							coin_type: parsed.gifts[0]?.coinType || "gold",
+							timestamp: parsed.gifts[0]?.timestamp ?? 0,
+							batch_combo_id: parsed.gifts[0]?.batchComboId ?? "",
+							opened,
+						});
 					} else {
 						for (const item of parsed.gifts) {
 							handleGift({

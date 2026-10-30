@@ -115,6 +115,8 @@ interface RecentGift {
 	ms: number;
 	applied: boolean;
 	reason: string;
+	/** 盲盒才有：开出来的奖品，例如「南瓜假面×1」 */
+	opened?: string;
 }
 
 let loggedIn = $state(false);
@@ -994,7 +996,7 @@ function downloadConfig(): void {
 						{#each recentGifts as gift (gift.at + "-" + gift.giftId + "-" + gift.num)}
 							<li class="recent-gift">
 								<div class="rg-main">
-									<span class="rg-name">{gift.giftName}<em>×{gift.num}</em></span>
+									<span class="rg-name">{gift.giftName}<em>×{gift.num}</em>{#if gift.opened}<i class="rg-opened">开出 {gift.opened}</i>{/if}</span>
 									<span class="rg-meta">
 										id {gift.giftId} · {gift.coinType || "?"} · 单价 {gift.price} ·
 										<span class:rg-ok={gift.applied} class:rg-no={!gift.applied}>
@@ -1461,6 +1463,13 @@ function downloadConfig(): void {
 		gap: 0.15rem;
 		min-width: 0;
 		flex: 1;
+	}
+
+	.rg-opened {
+		margin-left: 0.4rem;
+		font-size: 0.7rem;
+		font-style: normal;
+		color: var(--content-meta);
 	}
 
 	.rg-name {
