@@ -180,6 +180,7 @@ function pickEditable(config) {
 		roomId: config.roomId,
 		initialMinutes: config.initialMinutes,
 		cnyToMinutes: config.cnyToMinutes,
+		blindBoxPerYuan: numberFrom(config.blindBoxPerYuan),
 		ignoreSilverGifts: config.ignoreSilverGifts,
 		gifts: { ...config.gifts },
 		guards: {
@@ -246,6 +247,10 @@ function normalizeEditable(raw) {
 				Math.max(1, Math.round(Number(raw.initialMinutes) || 120)),
 			),
 			cnyToMinutes: Math.min(600, Math.max(0, Number(raw.cnyToMinutes) || 0)),
+			blindBoxPerYuan: Math.min(
+				600,
+				Math.max(0, Number(raw.blindBoxPerYuan) || 0),
+			),
 			ignoreSilverGifts: raw.ignoreSilverGifts !== false,
 			gifts,
 			guards: { 1: guardOf(1), 2: guardOf(2), 3: guardOf(3) },
@@ -297,6 +302,12 @@ const DEFAULT_CONFIG = {
 	ignoreSilverGifts: true,
 	/** 没在 gifts 表里命中的礼物：1 元 = 多少分钟 */
 	cnyToMinutes: 1,
+	/**
+	 * 盲盒专用汇率：按「开出来的礼物」的价格算，1 元开奖价值 = 多少分钟。
+	 * 0 = 关闭（退回「盒子实付价 × cnyToMinutes」）。
+	 * 设一次就能覆盖所有盲盒，不用给每个奖池礼物单独配表。
+	 */
+	blindBoxPerYuan: 0,
 	/** 礼物 price 字段的单位：金瓜子 → 元，除以这个数（B 站是 1000） */
 	priceUnit: 1000,
 	/** 指定礼物的固定时长，键可以是 giftId 或礼物名 */
@@ -662,6 +673,46 @@ function giftToMs(config, data) {
 		coinType === "gold" ? (numberFrom(data.price) / config.priceUnit) * num : 0;
 	if (cny <= 0) return 0;
 	return Math.round(cny * config.cnyToMinutes * 60_000);
+}
+
+/**
+ * 盲盒折算。优先级（前面的命中就不往后走）：
+ *   1. 礼物表里显式配了这个盒子（按盒子名或 giftId）→ 按表里的分钟数 × 数量
+ *   2. `blindBoxPerYuan > 0` → 按「开出来的礼物」的价格折算
+ *      （只配这一个开关，所有盲盒都自动生效，不用给奖池里的每个礼物单独配表）
+ *   3. 都没有 → 按盒子实付价 × cnyToMinutes
+ */
+function blindBoxToMs(config, box, gifts) {
+	const totalNum = gifts.reduce(
+		(sum, g) => sum + Math.max(1, Number(g.num) || 1),
+		0,
+	);
+	const name = String(box?.giftName ?? "");
+	const rule = config.gifts[String(box?.giftId ?? "")] ?? config.gifts[name];
+	if (rule !== undefined) {
+		const minutes = typeof rule === "number" ? rule : numberFrom(rule.minutes);
+		return Math.round(minutes * 60_000) * Math.max(1, totalNum);
+	}
+
+	const perYuan = numberFrom(config.blindBoxPerYuan);
+	if (perYuan > 0) {
+		const prizeCny = gifts.reduce(
+			(sum, g) =>
+				sum +
+				(numberFrom(g.price) * Math.max(1, Number(g.num) || 1)) /
+					config.priceUnit,
+			0,
+		);
+		if (prizeCny > 0) return Math.round(prizeCny * perYuan * 60_000);
+	}
+
+	const boxCny = numberFrom(box?.price) / config.priceUnit;
+	if (boxCny > 0 && numberFrom(config.cnyToMinutes) > 0) {
+		return Math.round(
+			boxCny * Math.max(1, totalNum) * config.cnyToMinutes * 60_000,
+		);
+	}
+	return 0;
 }
 
 function guardToMs(config, data) {
@@ -1299,6 +1350,80 @@ async function selfTest(config) {
 		) === 180_000,
 	);
 
+	// 盲盒折算策略：只配一个开关（blindBoxPerYuan）就能按「开奖价值」加时
+	const boxOnly = { price: 9000, giftName: "假面盲盒", giftId: 36044 };
+	const boxPrize = (price = 2000, num = 1) => [{ price, num }];
+	check(
+		"盲盒按开奖价值折算（2 元奖品 = 2 分钟）",
+		blindBoxToMs(
+			{
+				...config,
+				cnyToMinutes: 0,
+				blindBoxPerYuan: 1,
+				gifts: {},
+				priceUnit: 1000,
+			},
+			boxOnly,
+			boxPrize(2000, 1),
+		) === 120_000,
+	);
+	check(
+		"盲盒按开出的件数累加（3 件 × 2 元 = 6 分钟）",
+		blindBoxToMs(
+			{
+				...config,
+				cnyToMinutes: 0,
+				blindBoxPerYuan: 1,
+				gifts: {},
+				priceUnit: 1000,
+			},
+			boxOnly,
+			boxPrize(2000, 3),
+		) === 360_000,
+	);
+	check(
+		"开奖价为 0 时退回盒子实付价（9 元 = 9 分钟）",
+		blindBoxToMs(
+			{
+				...config,
+				cnyToMinutes: 1,
+				blindBoxPerYuan: 1,
+				gifts: {},
+				priceUnit: 1000,
+			},
+			boxOnly,
+			boxPrize(0, 1),
+		) === 540_000,
+	);
+	check(
+		"blindBoxPerYuan=0 时退回盒子实付价",
+		blindBoxToMs(
+			{
+				...config,
+				cnyToMinutes: 1,
+				blindBoxPerYuan: 0,
+				gifts: {},
+				priceUnit: 1000,
+			},
+			boxOnly,
+			boxPrize(2000, 1),
+		) === 540_000,
+	);
+	check(
+		"礼物表里显式配了盒子就按表走（5 分钟压过一切）",
+		blindBoxToMs(
+			{
+				...config,
+				cnyToMinutes: 1,
+				blindBoxPerYuan: 1,
+				gifts: { 假面盲盒: 5 },
+				priceUnit: 1000,
+			},
+			boxOnly,
+			boxPrize(2000, 1),
+		) === 300_000,
+	);
+
 	console.log("5) 网页配置校验");
 	const okRoom = normalizeEditable({
 		roomId: 1750753391,
@@ -1566,7 +1691,10 @@ async function main() {
 			// 盲盒才有：开出来的奖品，纯粹用来展示
 			opened: data.opened ? String(data.opened) : undefined,
 		};
-		let ms = giftToMs(config, data);
+		let ms =
+			data.msOverride === undefined
+				? giftToMs(config, data)
+				: numberFrom(data.msOverride);
 		if (config.debug) {
 			log(
 				`🔍 收到礼物 ${data.uname ?? "?"} ${data.giftName ?? "?"} ×${data.num} ` +
@@ -2130,6 +2258,7 @@ async function main() {
 		config.roomId = value.roomId;
 		config.initialMinutes = value.initialMinutes;
 		config.cnyToMinutes = value.cnyToMinutes;
+		config.blindBoxPerYuan = value.blindBoxPerYuan;
 		config.ignoreSilverGifts = value.ignoreSilverGifts;
 		config.gifts = value.gifts;
 		config.guards = value.guards;
@@ -2477,8 +2606,8 @@ async function main() {
 							).slice(0, 600)}`,
 						);
 					} else if (parsed.blindGift) {
-						// 盲盒：花的是盒子钱，gift_list 只是开出来的奖品。
-						// 按奖品价格算会把 9 元的盒子当成 2 元（或反过来白送 20 分钟）。
+						// 盲盒：gift_list 是开出来的奖品，blind_gift 才是盒子本身。
+						// 具体按什么折算见 blindBoxToMs（可按开奖价值，也可按盒子实付价）。
 						const box = parsed.blindGift;
 						const opened = parsed.gifts
 							.map((g) => `${g.giftName}×${g.num}`)
@@ -2498,6 +2627,7 @@ async function main() {
 							timestamp: parsed.gifts[0]?.timestamp ?? 0,
 							batch_combo_id: parsed.gifts[0]?.batchComboId ?? "",
 							opened,
+							msOverride: blindBoxToMs(config, box, parsed.gifts),
 						});
 					} else {
 						for (const item of parsed.gifts) {

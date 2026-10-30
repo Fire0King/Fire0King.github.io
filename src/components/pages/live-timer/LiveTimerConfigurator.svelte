@@ -36,6 +36,8 @@ const POSITIONS: { value: string; name: string }[] = [
 let roomId = $state("1750753391");
 let initialMinutes = $state(120);
 let cnyToMinutes = $state(1);
+/** 盲盒：1 元开奖价值 = 多少分钟（0 = 关闭，退回按盒子实付价） */
+let blindBoxPerYuan = $state(1);
 let ignoreSilver = $state(true);
 
 let rowSeq = 3;
@@ -75,6 +77,7 @@ interface ServerConfig {
 	roomId: number;
 	initialMinutes: number;
 	cnyToMinutes: number;
+	blindBoxPerYuan?: number;
 	ignoreSilverGifts: boolean;
 	gifts: Record<string, number | { minutes: number }>;
 	guards: Record<string, number>;
@@ -282,6 +285,7 @@ function applyServerConfig(config: ServerConfig): void {
 	roomId = String(config.roomId ?? "");
 	initialMinutes = Number(config.initialMinutes) || 120;
 	cnyToMinutes = Number(config.cnyToMinutes) || 0;
+	blindBoxPerYuan = Number(config.blindBoxPerYuan) || 0;
 	ignoreSilver = config.ignoreSilverGifts !== false;
 	guardCaptain = Number(config.guards?.[1]) || 0;
 	guardAdmiral = Number(config.guards?.[2]) || 0;
@@ -467,6 +471,7 @@ async function saveToServer(): Promise<void> {
 				roomId: Number(roomId) || 0,
 				initialMinutes: Number(initialMinutes) || 0,
 				cnyToMinutes: Number(cnyToMinutes) || 0,
+				blindBoxPerYuan: Number(blindBoxPerYuan) || 0,
 				ignoreSilverGifts: ignoreSilver,
 				gifts: giftMap,
 				guards: {
@@ -729,6 +734,7 @@ const configJson = $derived(
 			roomId: Number(roomId) || 0,
 			initialMinutes: Number(initialMinutes) || 0,
 			cnyToMinutes: Number(cnyToMinutes) || 0,
+			blindBoxPerYuan: Number(blindBoxPerYuan) || 0,
 			ignoreSilverGifts: ignoreSilver,
 			gifts: giftMap,
 			guards: {
@@ -894,6 +900,10 @@ function downloadConfig(): void {
 						<span>1 元 = 多少分钟</span>
 						<input type="number" min="0" step="0.1" bind:value={cnyToMinutes} />
 					</label>
+					<label>
+						<span>盲盒：1 元开奖价值 = 多少分钟</span>
+						<input type="number" min="0" step="0.1" bind:value={blindBoxPerYuan} />
+					</label>
 					<label class="check">
 						<input type="checkbox" bind:checked={ignoreSilver} />
 						<span>免费礼物（银瓜子）不加时</span>
@@ -901,6 +911,9 @@ function downloadConfig(): void {
 				</div>
 				<p class="hint">
 					按当前设置，100 元 ≈ <strong>{hundredYuan}</strong>。没命中下面礼物表的礼物一律按这个比例算。
+				</p>
+				<p class="hint">
+					<strong>盲盒</strong>（假面盲盒、幸运盲盒这类）不用逐个配：填上面的比例后，所有盲盒都按<b>开出来的礼物价值</b>加时（开出 20 元的蝠影马车 = 20 分钟）。填 <strong>0</strong> 表示关闭，退回「盒子实付价 × 上面的汇率」；想让某个盒子时长固定，就直接在礼物表里写盒子名。
 				</p>
 
 				<div class="field cookie-field">
