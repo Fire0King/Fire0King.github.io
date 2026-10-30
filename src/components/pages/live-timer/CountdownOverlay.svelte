@@ -12,6 +12,7 @@
  *   accent=%23FB7299       主色
  *   theme=dark|light       配色
  *   gifts=0                不显示礼物飘屏
+ *   rules=0                不显示倒计时上方的礼物价目（默认显示）
  *   bar=0                  不显示进度条和明细
  *   overtime=0             超时后停在 00:00，不显示加班
  *   bg=1                   给页面加个深色底（自己调样式时看得清）
@@ -30,6 +31,12 @@ interface GiftEvent {
 	at: number;
 }
 
+/** 服务端由礼物表算出的价目：minutes 是「每一个礼物」的加减分钟数 */
+interface GiftRule {
+	name: string;
+	minutes: number;
+}
+
 interface Snapshot {
 	v: number;
 	now: number;
@@ -45,6 +52,7 @@ interface Snapshot {
 	giftCount: number;
 	recent: GiftEvent[];
 	lastGift: GiftEvent | null;
+	rules?: GiftRule[];
 	connected?: boolean;
 	reason?: string;
 }
@@ -57,6 +65,18 @@ const BASE = import.meta.env.BASE_URL;
 
 const DEFAULT_LABEL = "距下播还有";
 const TOAST_LIFETIME = 7000;
+
+/** 礼物小图标：命中就用图，没命中就只显示文字，不会留空框 */
+const GIFT_ICONS: Record<string, string> = {
+	人气票: `${BASE}live-timer/gift/renqi-piao.webp`,
+	粉丝团灯牌: `${BASE}live-timer/gift/fans-medal.webp`,
+};
+
+/** 预览模式没有服务端，拿一份示例价目撑住版式 */
+const MOCK_RULES: GiftRule[] = [
+	{ name: "人气票", minutes: 0.1 },
+	{ name: "粉丝团灯牌", minutes: -0.1 },
+];
 
 let snap = $state<Snapshot | null>(null);
 /** 服务端时钟 - 本机时钟，用来消掉两边的时间差 */
@@ -71,6 +91,7 @@ let label = $state(DEFAULT_LABEL);
 let accent = $state("#FB7299");
 let theme = $state("dark");
 let showGifts = $state(true);
+let showRules = $state(true);
 let showBar = $state(true);
 let overtime = $state(true);
 let bg = $state(false);
@@ -113,6 +134,33 @@ const timeText = $derived(
 		? "--:--"
 		: formatClock(remaining > 0 ? remaining : overtime ? -remaining : 0),
 );
+
+/** 价目：优先用服务端按礼物表算出来的，预览模式用示例 */
+const ruleHints = $derived(
+	(snap?.rules ?? (mock ? MOCK_RULES : [])).filter(
+		(rule) => Number.isFinite(rule.minutes) && rule.minutes !== 0,
+	),
+);
+
+/**
+ * 把「每个多少分钟」翻译成观众一眼能懂的价目：
+ * 0.1 → 10 个 = +1 分钟；2 → 1 个 = +2 分钟
+ */
+function ruleText(minutes: number): string {
+	const per = Math.abs(minutes);
+	const sign = minutes < 0 ? "−" : "+";
+	const qty = Math.round(1 / per);
+	// 1/0.1 在浮点里是 10.000000000000002，别用 Number.isInteger 判
+	if (qty >= 1 && Math.abs(qty * per - 1) < 1e-9 && qty <= 100_000) {
+		return `${qty} 个 = ${sign}1 分钟`;
+	}
+	const shown = Math.round(per * 10) / 10;
+	return `1 个 = ${sign}${shown} 分钟`;
+}
+
+function iconOf(name: string): string {
+	return GIFT_ICONS[name.trim()] ?? "";
+}
 
 function formatClock(ms: number): string {
 	const total = Math.max(0, Math.floor(ms / 1000));
@@ -226,6 +274,7 @@ function readParams(): void {
 	accent = params.get("accent") ?? "#FB7299";
 	theme = params.get("theme") === "light" ? "light" : "dark";
 	showGifts = params.get("gifts") !== "0";
+	showRules = params.get("rules") !== "0";
 	showBar = params.get("bar") !== "0";
 	overtime = params.get("overtime") !== "0";
 	bg = params.get("bg") === "1";
@@ -268,6 +317,7 @@ onMount(() => {
 			giftCount: 12,
 			recent: [],
 			lastGift: null,
+			rules: MOCK_RULES,
 			connected: true,
 			reason: "预览",
 		});
@@ -332,6 +382,27 @@ onMount(() => {
 						<span class="toast-user">{toast.user}</span>
 						<span class="toast-gift">{toast.label}</span>
 						<span class="toast-delta">+{formatSpan(toast.deltaMs)}</span>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+
+		{#if showRules && ruleHints.length > 0}
+			<ul class="rules">
+				{#each ruleHints as rule (rule.name)}
+					<li class="rule" class:minus={rule.minutes < 0}>
+						{#if iconOf(rule.name)}
+							<img
+								class="rule-icon"
+								src={iconOf(rule.name)}
+								alt=""
+								onerror={(event) => {
+									event.currentTarget.style.display = "none";
+								}}
+							/>
+						{/if}
+						<span class="rule-name">{rule.name}</span>
+						<span class="rule-rate">{ruleText(rule.minutes)}</span>
 					</li>
 				{/each}
 			</ul>
@@ -492,6 +563,56 @@ onMount(() => {
 		border-color: rgba(20, 22, 30, 0.12);
 		background: rgba(255, 255, 255, 0.78);
 		box-shadow: 0 12px 40px rgba(80, 90, 120, 0.2);
+	}
+
+	.rules {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		max-width: 460px;
+	}
+
+	.rule {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 5px 10px 5px 6px;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		background: rgba(14, 15, 22, 0.6);
+		backdrop-filter: blur(10px);
+		font-size: 12.5px;
+		line-height: 1;
+		white-space: nowrap;
+	}
+
+	.light .rule {
+		background: rgba(255, 255, 255, 0.82);
+		border-color: rgba(20, 22, 30, 0.1);
+	}
+
+	.rule-icon {
+		width: 22px;
+		height: 22px;
+		object-fit: contain;
+		flex: none;
+	}
+
+	.rule-name {
+		opacity: 0.9;
+	}
+
+	.rule-rate {
+		color: #4ade80;
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.rule.minus .rule-rate {
+		color: #f87171;
 	}
 
 	.head {

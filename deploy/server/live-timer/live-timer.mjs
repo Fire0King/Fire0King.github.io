@@ -489,6 +489,8 @@ class TimerState {
 			giftCount: this.giftCount,
 			lastGift: this.lastGift,
 			recent: this.recent,
+			// 叠层顶部的「礼物价目」：由礼物表算出，改配置后叠层自动跟着变
+			rules: giftRuleHints(this.config),
 			...extra,
 		};
 	}
@@ -593,6 +595,15 @@ function decodeSendGiftV2(base64) {
 			};
 		});
 	return { uid, uname, gifts };
+}
+
+/** 礼物表 → 叠层顶部的价目提示（只留非 0 的规则，最多 6 条） */
+function giftRuleHints(config) {
+	return Object.entries(config.gifts ?? {})
+		.map(([name, minutes]) => ({ name, minutes: numberFrom(minutes) }))
+		.filter((rule) => rule.minutes !== 0)
+		.sort((a, b) => Math.abs(b.minutes) - Math.abs(a.minutes))
+		.slice(0, 6);
 }
 
 /** 把一条礼物事件折算成毫秒；返回 0 表示不计入 */
@@ -1223,6 +1234,19 @@ async function selfTest(config) {
 			guards: {},
 			caps: {},
 		}).value.gifts["粉丝团灯牌"] === -0.1,
+	);
+	check(
+		"价目提示只留非 0 的规则、按量级排序",
+		JSON.stringify(
+			giftRuleHints({
+				gifts: { 人气票: 0.1, 灯牌: -0.1, 小心心: 0, 大礼物: 6 },
+			}),
+		) ===
+			JSON.stringify([
+				{ name: "大礼物", minutes: 6 },
+				{ name: "人气票", minutes: 0.1 },
+				{ name: "灯牌", minutes: -0.1 },
+			]),
 	);
 	check(
 		"负数分钟折算成负毫秒",

@@ -59,6 +59,7 @@ let label = $state(DEFAULT_LABEL);
 let accent = $state("#FB7299");
 let theme = $state("dark");
 let showGifts = $state(true);
+let showRules = $state(true);
 let showBar = $state(true);
 let overtime = $state(true);
 
@@ -687,6 +688,7 @@ const styleQuery = $derived.by(() => {
 	if (accent.toLowerCase() !== "#fb7299") params.set("accent", accent);
 	if (theme !== "dark") params.set("theme", theme);
 	if (!showGifts) params.set("gifts", "0");
+	if (!showRules) params.set("rules", "0");
 	if (!showBar) params.set("bar", "0");
 	if (!overtime) params.set("overtime", "0");
 	return params.toString();
@@ -1146,6 +1148,7 @@ function downloadConfig(): void {
 
 				<div class="toggles">
 					<label class="check"><input type="checkbox" bind:checked={showGifts} /><span>礼物飘屏</span></label>
+					<label class="check"><input type="checkbox" bind:checked={showRules} /><span>礼物价目</span></label>
 					<label class="check"><input type="checkbox" bind:checked={showBar} /><span>进度条与明细</span></label>
 					<label class="check"><input type="checkbox" bind:checked={overtime} /><span>超时显示加班</span></label>
 					<label class="check">
