@@ -16,9 +16,8 @@ import { onMount } from "svelte";
 interface GiftRow {
 	id: number;
 	name: string;
+	/** 每个礼物对应的分钟数，实际生效时会乘数量（×100 就是 100 倍） */
 	minutes: number;
-	/** true = 分钟数按礼物数量翻倍（×100 就是 100 倍） */
-	perUnit: boolean;
 }
 
 const BASE = import.meta.env.BASE_URL;
@@ -76,7 +75,7 @@ interface ServerConfig {
 	initialMinutes: number;
 	cnyToMinutes: number;
 	ignoreSilverGifts: boolean;
-	gifts: Record<string, number | { minutes: number; perUnit?: boolean }>;
+	gifts: Record<string, number | { minutes: number }>;
 	guards: Record<string, number>;
 	caps: {
 		perGiftMinutes: number;
@@ -292,20 +291,17 @@ function applyServerConfig(config: ServerConfig): void {
 	clearCookie = false;
 	const rows: GiftRow[] = [];
 	for (const [name, value] of Object.entries(config.gifts ?? {})) {
-		if (value && typeof value === "object") {
-			rows.push(
-				makeGiftRow(name, Number(value.minutes) || 0, value.perUnit === true),
-			);
-		} else {
-			rows.push(makeGiftRow(name, Number(value) || 0));
-		}
+		// 兼容旧的 { minutes, perUnit } 写法，统一读成「每个的分钟数」
+		const minutes =
+			value && typeof value === "object" ? value.minutes : (value as number);
+		rows.push(makeGiftRow(name, Number(minutes) || 0));
 	}
 	giftRows = rows.length > 0 ? rows : [makeGiftRow("", 1)];
 }
 
-function makeGiftRow(name: string, minutes: number, perUnit = false): GiftRow {
+function makeGiftRow(name: string, minutes: number): GiftRow {
 	rowSeq += 1;
-	return { id: rowSeq, name, minutes, perUnit };
+	return { id: rowSeq, name, minutes };
 }
 
 /** 把「最近收到的礼物」里的某一条加进礼物表（已存在就只提示） */
@@ -714,13 +710,11 @@ $effect(() => {
 });
 
 const giftMap = $derived.by(() => {
-	const map: Record<string, number | { minutes: number; perUnit: boolean }> =
-		{};
+	const map: Record<string, number> = {};
 	for (const row of giftRows) {
 		const name = row.name.trim();
 		if (!name) continue;
-		const minutes = Number(row.minutes) || 0;
-		map[name] = row.perUnit ? { minutes, perUnit: true } : minutes;
+		map[name] = Number(row.minutes) || 0;
 	}
 	return map;
 });
@@ -963,17 +957,13 @@ function downloadConfig(): void {
 
 			<section class="panel">
 				<h3>礼物表</h3>
-				<p class="hint">名字要和弹幕里推的 <code>giftName</code> 一字不差；<strong>0</strong> = 不加不减，<strong>负数</strong> = 减时（如 <code>-0.1</code>）。</p>
+				<p class="hint">名字要和弹幕里推的 <code>giftName</code> 一字不差；<strong>0</strong> = 不加不减，<strong>负数</strong> = 减时（如 <code>-0.1</code>）。分钟数按<b>每一个</b>算，自动乘礼物数量（<code>-0.1</code> × 100 个 = 减 10 分钟）。</p>
 				<div class="rows">
 					{#each giftRows as row (row.id)}
 						<div class="row">
 							<input type="text" placeholder="礼物名，如 小花花" bind:value={row.name} />
 							<input class="minutes" type="number" min="-1440" step="0.1" bind:value={row.minutes} />
-							<span class="unit">分钟</span>
-							<label class="per-unit" title="勾选后按礼物数量翻倍：×100 就是 100 倍">
-								<input type="checkbox" bind:checked={row.perUnit} />
-								<span>按数量</span>
-							</label>
+							<span class="unit">分钟 / 个</span>
 							<button
 								type="button"
 								class="ghost danger"
@@ -1426,22 +1416,6 @@ function downloadConfig(): void {
 		font-variant-numeric: tabular-nums;
 	}
 
-	.per-unit {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		font-size: 0.7rem;
-		color: var(--content-meta);
-		white-space: nowrap;
-		cursor: pointer;
-	}
-
-	.per-unit input {
-		accent-color: var(--primary);
-		width: 0.9rem;
-		height: 0.9rem;
-		cursor: pointer;
-	}
 
 	.unit {
 		font-size: 0.74rem;
@@ -1762,7 +1736,7 @@ function downloadConfig(): void {
 
 	.row {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 5.5rem auto auto auto;
+		grid-template-columns: minmax(0, 1fr) 5.5rem auto auto;
 		align-items: center;
 		gap: 0.45rem;
 	}
@@ -1771,22 +1745,6 @@ function downloadConfig(): void {
 		min-width: 0;
 	}
 
-	.per-unit {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		font-size: 0.7rem;
-		color: var(--content-meta);
-		white-space: nowrap;
-		cursor: pointer;
-	}
-
-	.per-unit input {
-		accent-color: var(--primary);
-		width: 0.9rem;
-		height: 0.9rem;
-		cursor: pointer;
-	}
 
 	.unit {
 		font-size: 0.72rem;

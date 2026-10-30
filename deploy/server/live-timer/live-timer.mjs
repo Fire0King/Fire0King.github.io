@@ -213,22 +213,16 @@ function normalizeEditable(raw) {
 		const name = String(key).trim();
 		const hasControlChar = [...name].some((ch) => ch.charCodeAt(0) < 32);
 		if (!name || name.length > 40 || hasControlChar) continue;
-		// 支持两种写法：数字（按次固定），或 { minutes, perUnit }（perUnit=按礼物数量翻倍）
+		// 存数字即可：分钟数按「每个」解释，实际生效时乘礼物数量
 		const clampMinutes = (n) =>
 			Math.round(Math.min(1440, Math.max(-1440, n)) * 10) / 10;
-		if (value && typeof value === "object") {
-			const minutes = Number(value.minutes);
-			if (!Number.isFinite(minutes)) continue;
-			gifts[name] = {
-				minutes: clampMinutes(minutes),
-				perUnit: value.perUnit === true,
-			};
-		} else {
-			const minutes = Number(value);
-			if (!Number.isFinite(minutes)) continue;
-			// 负数表示「减时」（比如粉丝团灯牌 -0.1 分钟）
-			gifts[name] = clampMinutes(minutes);
-		}
+		// 兼容旧写法 { minutes, perUnit }，统一存成数字；分钟数一律按「每个」解释
+		const minutes = Number(
+			value && typeof value === "object" ? value.minutes : value,
+		);
+		if (!Number.isFinite(minutes)) continue;
+		// 负数表示「减时」（比如粉丝团灯牌 -0.1 分钟）
+		gifts[name] = clampMinutes(minutes);
 		count += 1;
 		if (count >= 60) break;
 	}
@@ -612,7 +606,8 @@ function giftToMs(config, data) {
 	const rule = config.gifts[giftId] ?? config.gifts[name];
 	if (rule !== undefined) {
 		const minutes = typeof rule === "number" ? rule : numberFrom(rule.minutes);
-		return Math.round(minutes * 60_000) * (rule.perUnit === true ? num : 1);
+		// 规则里的分钟数一律按「每个」算，乘数量（×100 就是 100 倍）
+		return Math.round(minutes * 60_000) * num;
 	}
 
 	if (config.ignoreSilverGifts && coinType === "silver") return 0;
@@ -1214,20 +1209,20 @@ async function selfTest(config) {
 		}).value.gifts["粉丝团灯牌"] === -0.1,
 	);
 	check(
-		"perUnit 规则按数量翻倍",
+		"规则分钟数默认按数量翻倍（×100 = 100 倍）",
 		giftToMs(
-			{ ...config, gifts: { 粉丝团灯牌: { minutes: -0.1, perUnit: true } } },
+			{ ...config, gifts: { 粉丝团灯牌: -0.1 } },
 			{ giftName: "粉丝团灯牌", num: 100 },
 		) === -600_000,
 	);
 	check(
-		"perUnit 规则被配置层保留",
+		"旧的 { minutes, perUnit } 写法仍能读",
 		normalizeEditable({
 			roomId: 1,
 			gifts: { 粉丝团灯牌: { minutes: -0.1, perUnit: true } },
 			guards: {},
 			caps: {},
-		}).value.gifts["粉丝团灯牌"].perUnit === true,
+		}).value.gifts["粉丝团灯牌"] === -0.1,
 	);
 	check(
 		"负数分钟折算成负毫秒",
