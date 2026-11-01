@@ -160,8 +160,10 @@ async function ingest(payload) {
 		}
 		const data = await res.json();
 		if (debug && payload.type !== "ping") {
+			const extra =
+				payload.type === "guard" ? ` level=${payload.guardLevel}` : "";
 			log(
-				`📤 ${payload.type} ${payload.uname ?? ""} ${payload.giftName ?? ""} → 已累计 ${data.giftCount ?? "-"} 次`,
+				`📤 ${payload.type} ${payload.uname ?? ""} ${payload.giftName ?? ""}${extra} → 已累计 ${data.giftCount ?? "-"} 次`,
 			);
 		}
 	} catch (err) {
@@ -257,13 +259,17 @@ async function main() {
 		});
 
 		live.onGuardBuy(({ data }) => {
+			// 注意：bili-live-listener 的 GUARD_BUY 解析结果是 guardType（不是 guardLevel），
+			// 之前读错字段导致 level 恒为 0，大航海一直静默不加时。
 			ingest({
 				type: "guard",
 				uid: data.user?.uid ?? 0,
 				uname: data.user?.uname ?? "观众",
-				giftName: "大航海",
-				guardLevel: data.guardLevel ?? data.guard_level ?? 0,
+				giftName: data.giftName ?? "大航海",
+				guardLevel:
+					data.guardType ?? data.guardLevel ?? data.guard_level ?? 0,
 				num: data.num ?? 1,
+				price: data.price ?? 0,
 			});
 		});
 

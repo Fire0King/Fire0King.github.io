@@ -287,9 +287,10 @@ function applyServerConfig(config: ServerConfig): void {
 	cnyToMinutes = Number(config.cnyToMinutes) || 0;
 	blindBoxPerYuan = Number(config.blindBoxPerYuan) || 0;
 	ignoreSilver = config.ignoreSilverGifts !== false;
-	guardCaptain = Number(config.guards?.[1]) || 0;
+	// B 站 guard_level：1 总督 / 2 提督 / 3 舰长（数字越小等级越高）
+	guardGovernor = Number(config.guards?.[1]) || 0;
 	guardAdmiral = Number(config.guards?.[2]) || 0;
-	guardGovernor = Number(config.guards?.[3]) || 0;
+	guardCaptain = Number(config.guards?.[3]) || 0;
 	perGift = Number(config.caps?.perGiftMinutes) || 0;
 	perUser = Number(config.caps?.perUserPerMinute) || 0;
 	totalCap = Number(config.caps?.totalMinutes) || 0;
@@ -475,9 +476,9 @@ async function saveToServer(): Promise<void> {
 				ignoreSilverGifts: ignoreSilver,
 				gifts: giftMap,
 				guards: {
-					1: Number(guardCaptain) || 0,
+					1: Number(guardGovernor) || 0,
 					2: Number(guardAdmiral) || 0,
-					3: Number(guardGovernor) || 0,
+					3: Number(guardCaptain) || 0,
 				},
 				caps: {
 					perGiftMinutes: Number(perGift) || 0,
@@ -738,9 +739,9 @@ const configJson = $derived(
 			ignoreSilverGifts: ignoreSilver,
 			gifts: giftMap,
 			guards: {
-				1: Number(guardCaptain) || 0,
+				1: Number(guardGovernor) || 0,
 				2: Number(guardAdmiral) || 0,
-				3: Number(guardGovernor) || 0,
+				3: Number(guardCaptain) || 0,
 			},
 			caps: {
 				perGiftMinutes: Number(perGift) || 0,
@@ -1046,6 +1047,9 @@ function downloadConfig(): void {
 						<input type="number" min="0" bind:value={guardGovernor} />
 					</label>
 				</div>
+				<p class="hint">
+					单位是分钟，开出来按「上舰人数 × 这个分钟数」加时。B 站等级：舰长 &lt; 提督 &lt; 总督。
+				</p>
 			</section>
 
 			<section class="panel">

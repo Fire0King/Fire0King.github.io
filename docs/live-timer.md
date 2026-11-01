@@ -86,8 +86,8 @@ node /usr/local/bin/live-timer.mjs --config /var/lib/live-timer/config.json --se
     "粉丝团灯牌": -0.1
   },
 
-  // 大航海：1 舰长 / 2 提督 / 3 总督
-  "guards": { "1": 30, "2": 60, "3": 120 },
+  // 大航海：guard_level → 分钟（1 总督 / 2 提督 / 3 舰长，数字越小等级越高）
+  "guards": { "1": 120, "2": 60, "3": 30 },
 
   // 防翻车
   "caps": {

@@ -312,8 +312,11 @@ const DEFAULT_CONFIG = {
 	priceUnit: 1000,
 	/** 指定礼物的固定时长，键可以是 giftId 或礼物名 */
 	gifts: {},
-	/** 大航海：guard_level → 分钟 */
-	guards: { 1: 30, 2: 60, 3: 120 },
+	/**
+	 * 大航海：guard_level → 分钟。
+	 * B 站的 guard_level 是「等级越高数字越小」：1 总督 / 2 提督 / 3 舰长。
+	 */
+	guards: { 1: 120, 2: 60, 3: 30 },
 	/** 上限保护，防止一场直播被加到天亮 */
 	caps: {
 		/** 单次礼物最多折算多少分钟 */
@@ -715,6 +718,13 @@ function blindBoxToMs(config, box, gifts) {
 		);
 	}
 	return 0;
+}
+
+/** B 站 guard_level：1 总督 / 2 提督 / 3 舰长（数字越小等级越高） */
+const GUARD_NAMES = { 1: "总督", 2: "提督", 3: "舰长" };
+
+function guardLevelName(level) {
+	return GUARD_NAMES[Number(level)] ?? "大航海";
 }
 
 function guardToMs(config, data) {
@@ -1206,8 +1216,20 @@ async function selfTest(config) {
 		giftToMs(overrideCfg, { ...baseGift, giftName: "小花花" }) === 120_000,
 	);
 	check(
-		"大航海舰长按 guards 折算",
-		guardToMs(config, { guard_level: 1, num: 1 }) === config.guards[1] * 60_000,
+		"大航海按 guard_level 折算（1 总督 / 2 提督 / 3 舰长）",
+		guardToMs(config, { guard_level: 3, num: 1 }) ===
+			config.guards[3] * 60_000 &&
+			guardToMs(config, { guard_level: 1, num: 1 }) ===
+				config.guards[1] * 60_000 &&
+			guardToMs(config, { guard_level: 2, num: 2 }) ===
+				config.guards[2] * 120_000,
+	);
+	check(
+		"等级名字对得上（小数字 = 高等级）",
+		guardLevelName(1) === "总督" &&
+			guardLevelName(2) === "提督" &&
+			guardLevelName(3) === "舰长" &&
+			guardLevelName(0) === "大航海",
 	);
 	check(
 		"SC 30 元 = 30 分钟",
@@ -2660,17 +2682,38 @@ async function main() {
 						timestamp: Number(payload.timestamp) || 0,
 					});
 				} else if (kind === "guard") {
+					const level = Number(payload.guardLevel ?? payload.guard_level ?? 0);
 					const ms = guardToMs(config, {
-						guard_level: Number(payload.guardLevel ?? payload.guard_level),
+						guard_level: level,
 						num: Number(payload.num) || 1,
 					});
+					const guardName = guardLevelName(level);
 					if (ms > 0) {
-						grant(ms, {
+						const applied = grant(ms, {
 							kind: "guard",
 							user: String(payload.uname ?? "观众"),
 							uid: Number(payload.uid) || 0,
 							label: String(payload.giftName ?? "大航海"),
+							giftId: String(payload.giftId ?? ""),
 						});
+						noteGift({
+							uid: Number(payload.uid) || 0,
+							uname: String(payload.uname ?? "观众"),
+							giftId: String(payload.giftId ?? ""),
+							giftName: String(payload.giftName ?? guardName),
+							num: Number(payload.num) || 1,
+							price: Number(payload.price) || 0,
+							coinType: "gold",
+							ms: applied,
+							applied: applied > 0,
+							reason: `大航海（${guardName}）`,
+						});
+					} else {
+						// 没配这个等级就明说，别像以前那样静默吞掉
+						log(
+							`⚠️ 收到大航海但没加时：guard_level=${level || "未知"}（${guardName}），` +
+								`配置里该等级 = ${config.guards[level] ?? "未配置"} 分钟`,
+						);
 					}
 				} else if (kind === "superchat") {
 					const ms = superChatToMs(config, {
