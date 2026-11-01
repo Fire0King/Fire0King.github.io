@@ -190,18 +190,19 @@ const hintItems = $derived.by(() => {
 
 /**
  * 把「每个多少分钟」翻译成观众一眼能懂的价目：
- * 0.1 → 10 个 = +1 分钟；2 → 1 个 = +2 分钟
+ * 0.1 → 10 个 = 加 1 分钟；-0.1 → 10 个 = 减 1 分钟；2 → 1 个 = 加 2 分钟
+ * 用「加 / 减」而不是 +-，小字号下更好认。
  */
 function ruleText(minutes: number): string {
 	const per = Math.abs(minutes);
-	const sign = minutes < 0 ? "−" : "+";
+	const word = minutes < 0 ? "减" : "加";
 	const qty = Math.round(1 / per);
 	// 1/0.1 在浮点里是 10.000000000000002，别用 Number.isInteger 判
 	if (qty >= 1 && Math.abs(qty * per - 1) < 1e-9 && qty <= 100_000) {
-		return `${qty} 个 = ${sign}1 分钟`;
+		return `${qty} 个 = ${word} 1 分钟`;
 	}
 	const shown = Math.round(per * 10) / 10;
-	return `1 个 = ${sign}${shown} 分钟`;
+	return `1 个 = ${word} ${shown} 分钟`;
 }
 
 function iconOf(name: string): string {
@@ -219,13 +220,24 @@ function formatClock(ms: number): string {
 		: `${pad(minutes)}:${pad(seconds)}`;
 }
 
-/** 把毫秒格式化成 "45 分钟" / "1 小时 20 分" 这种 */
+/** 把毫秒格式化成 "45 分钟" / "1 小时 20 分" 这种；不足 1 分钟用秒 */
 function formatSpan(ms: number): string {
-	const minutes = Math.round(ms / 60000);
+	const total = Math.max(0, ms);
+	if (total < 60_000) {
+		const seconds = Math.max(1, Math.round(total / 1000));
+		return `${seconds} 秒`;
+	}
+	const minutes = Math.round(total / 60_000);
 	if (minutes < 60) return `${minutes} 分钟`;
 	const hours = Math.floor(minutes / 60);
 	const rest = minutes % 60;
 	return rest ? `${hours} 小时 ${rest} 分` : `${hours} 小时`;
+}
+
+/** 礼物飘屏上的增减：用「加 / 减」文字，小字号下比 +- 清楚 */
+function formatDelta(ms: number): string {
+	const word = ms < 0 ? "减" : "加";
+	return `${word} ${formatSpan(Math.abs(ms))}`;
 }
 
 function addToast(event: GiftEvent): void {
@@ -428,7 +440,7 @@ onMount(() => {
 					<li class="toast">
 						<span class="toast-user">{toast.user}</span>
 						<span class="toast-gift">{toast.label}</span>
-						<span class="toast-delta">+{formatSpan(toast.deltaMs)}</span>
+						<span class="toast-delta">{formatDelta(toast.deltaMs)}</span>
 					</li>
 				{/each}
 			</ul>
@@ -671,8 +683,9 @@ onMount(() => {
 		margin-right: 10px;
 		padding: 5px 10px 5px 6px;
 		border-radius: 999px;
-		border: 1px solid rgba(255, 255, 255, 0.12);
-		background: rgba(14, 15, 22, 0.6);
+		/* 白描边一圈，压在花哨画面上不至于糊 */
+		border: 1px solid rgba(255, 255, 255, 0.42);
+		background: rgba(14, 15, 22, 0.72);
 		backdrop-filter: blur(10px);
 		font-size: 12.5px;
 		line-height: 1;
@@ -691,15 +704,28 @@ onMount(() => {
 		flex: none;
 	}
 
+	/* 文字加白色描边：粉字压在亮画面上也能看清 */
 	.rule-name {
 		color: var(--accent);
+		text-shadow:
+			-1px -1px 0 rgba(255, 255, 255, 0.95),
+			1px -1px 0 rgba(255, 255, 255, 0.95),
+			-1px 1px 0 rgba(255, 255, 255, 0.95),
+			1px 1px 0 rgba(255, 255, 255, 0.95),
+			0 0 5px rgba(255, 255, 255, 0.55);
 	}
 
 	/* 加减同一色，跟进度条（--accent）保持一致 */
 	.rule-rate {
 		color: var(--accent);
-		font-weight: 600;
+		font-weight: 700;
 		font-variant-numeric: tabular-nums;
+		text-shadow:
+			-1px -1px 0 rgba(255, 255, 255, 0.95),
+			1px -1px 0 rgba(255, 255, 255, 0.95),
+			-1px 1px 0 rgba(255, 255, 255, 0.95),
+			1px 1px 0 rgba(255, 255, 255, 0.95),
+			0 0 5px rgba(255, 255, 255, 0.55);
 	}
 
 	.head {
@@ -856,8 +882,14 @@ onMount(() => {
 	.toast-delta {
 		margin-left: auto;
 		color: var(--accent);
-		font-weight: 600;
+		font-weight: 700;
 		font-variant-numeric: tabular-nums;
+		text-shadow:
+			-1px -1px 0 rgba(255, 255, 255, 0.95),
+			1px -1px 0 rgba(255, 255, 255, 0.95),
+			-1px 1px 0 rgba(255, 255, 255, 0.95),
+			1px 1px 0 rgba(255, 255, 255, 0.95),
+			0 0 5px rgba(255, 255, 255, 0.5);
 	}
 
 	.admin {
