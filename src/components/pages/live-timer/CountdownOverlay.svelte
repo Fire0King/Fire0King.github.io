@@ -477,9 +477,9 @@ onMount(() => {
 
 		<div class="card" class:paused={snap?.paused} class:over={over && overtime}>
 			<div class="head">
-				<span class="label">{label}</span>
+				<span class="label">{over && overtime ? "已超时" : label}</span>
 				{#if over && overtime}
-					<span class="badge">加班中</span>
+					<span class="badge">超时</span>
 				{:else if snap?.paused}
 					<span class="badge">已暂停</span>
 				{/if}
@@ -490,7 +490,13 @@ onMount(() => {
 				></span>
 			</div>
 
-			<div class="time" class:alert={over && overtime}>{timeText}</div>
+			{#if over && overtime}
+				<!-- 时间到了就把「加班中」顶上主体，避免观众看错还剩多久 -->
+				<div class="time over-title">加班中</div>
+				<div class="overtime-sub">已加班 {formatClock(-remaining)}</div>
+			{:else}
+				<div class="time">{timeText}</div>
+			{/if}
 
 			{#if showBar}
 				<div class="bar"><i style={`width:${percent}%`}></i></div>
@@ -754,6 +760,21 @@ onMount(() => {
 		color: #fff;
 	}
 
+	/* 切到加班的瞬间给张卡片一个轻微的「弹一下」 */
+	.card.over {
+		border-color: var(--accent);
+		animation: card-pop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+	}
+
+	@keyframes card-pop {
+		from {
+			transform: scale(0.985);
+		}
+		to {
+			transform: scale(1);
+		}
+	}
+
 	.dot {
 		width: 7px;
 		height: 7px;
@@ -779,9 +800,53 @@ onMount(() => {
 		text-shadow: 0 2px 18px rgba(0, 0, 0, 0.35);
 	}
 
-	.time.alert {
+	/* 倒计时结束：「加班中」当主体，比剩余时间更显眼，不会看错 */
+	.over-title {
+		margin: 4px 0 0;
+		/* 中文标题用无衬线，别套倒计时的等宽字体 */
+		font-family: inherit;
+		font-size: 58px;
+		font-weight: 800;
+		line-height: 1.06;
+		letter-spacing: 0.06em;
 		color: var(--accent);
-		animation: breathe 2.4s ease-in-out infinite;
+		text-shadow: 0 2px 18px rgba(0, 0, 0, 0.35);
+		animation:
+			over-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both,
+			breathe 2.6s 0.5s ease-in-out infinite;
+	}
+
+	.overtime-sub {
+		margin-top: 2px;
+		font-size: 18px;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		color: var(--accent);
+		opacity: 0.9;
+		font-variant-numeric: tabular-nums;
+		animation: fade-up 0.5s 0.1s ease-out both;
+	}
+
+	@keyframes over-in {
+		from {
+			opacity: 0;
+			transform: translateY(10px) scale(0.94);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
+	}
+
+	@keyframes fade-up {
+		from {
+			opacity: 0;
+			transform: translateY(6px);
+		}
+		to {
+			opacity: 0.9;
+			transform: translateY(0);
+		}
 	}
 
 	@keyframes breathe {
@@ -973,7 +1038,9 @@ onMount(() => {
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.time.alert {
+		.over-title,
+		.overtime-sub,
+		.card.over {
 			animation: none;
 		}
 		.ticker-track {
