@@ -1,23 +1,9 @@
 {
   "version": 1,
-  "updatedAt": "2026-11-04T20:40:04+08:00",
+  "updatedAt": "2026-11-04T22:13:07+08:00",
   "timezone": "Asia/Shanghai",
   "intervalMinutes": 10,
-  "active": {
-    "douyin": {
-      "platform": "douyin",
-      "title": "可甜可盐可御姐",
-      "start": "2026-11-04T20:40:04+08:00",
-      "titleUpdatedAt": "2026-11-04T20:40:04+08:00",
-      "url": "https://live.douyin.com/407805461300",
-      "cover": {
-        "url_list": [
-          "https://p11-webcast-sign.douyinpic.com/webcast-cover/7611565017426823987~tplv-qz53dukwul-common-resize:0:0.image?biz_tag=app_6383_webcast&from=webcast.room.pack&l=202611042040083A5B80EF60C24376AA88&lk3s=39e7556e&s=enter_room&sc=webcast_cover&x-expires=1796388008&x-signature=g99bBAKZx5mqMdwpNAdO5JVZof8%3D",
-          "https://p3-webcast-sign.douyinpic.com/webcast-cover/7611565017426823987~tplv-qz53dukwul-common-resize:0:0.image?biz_tag=app_6383_webcast&from=webcast.room.pack&l=202611042040083A5B80EF60C24376AA88&lk3s=39e7556e&s=enter_room&sc=webcast_cover&x-expires=1796388008&x-signature=%2BJrJmBFh%2BWo%2BuTKe%2FBHkt9llHsg%3D"
-        ]
-      }
-    }
-  },
+  "active": {},
   "records": [
     {
       "id": "bilibili-2026-09-30T19:42:42+08:00",
@@ -462,6 +448,22 @@
       "url": "https://live.bilibili.com/1750753391",
       "roomId": "1750753391",
       "cover": "https://i0.hdslb.com/bfs/live/new_room_cover/a905881096d671fb52e37dd05e8e3e43ab154c2b.jpg"
+    },
+    {
+      "id": "douyin-2026-11-04T20:40:04+08:00",
+      "platform": "douyin",
+      "title": "可甜可盐可御姐",
+      "date": "2026-11-04",
+      "start": "2026-11-04T20:40:04+08:00",
+      "end": "2026-11-04T22:13:07+08:00",
+      "durationSeconds": 5584,
+      "url": "https://live.douyin.com/407805461300",
+      "cover": {
+        "url_list": [
+          "https://p11-webcast-sign.douyinpic.com/webcast-cover/7611565017426823987~tplv-qz53dukwul-common-resize:0:0.image?biz_tag=app_6383_webcast&from=webcast.room.pack&l=202611042040083A5B80EF60C24376AA88&lk3s=39e7556e&s=enter_room&sc=webcast_cover&x-expires=1796388008&x-signature=g99bBAKZx5mqMdwpNAdO5JVZof8%3D",
+          "https://p3-webcast-sign.douyinpic.com/webcast-cover/7611565017426823987~tplv-qz53dukwul-common-resize:0:0.image?biz_tag=app_6383_webcast&from=webcast.room.pack&l=202611042040083A5B80EF60C24376AA88&lk3s=39e7556e&s=enter_room&sc=webcast_cover&x-expires=1796388008&x-signature=%2BJrJmBFh%2BWo%2BuTKe%2FBHkt9llHsg%3D"
+        ]
+      }
     }
   ]
 }
