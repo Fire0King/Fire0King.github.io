@@ -1,19 +1,9 @@
 {
   "version": 1,
-  "updatedAt": "2026-11-05T19:42:01+08:00",
+  "updatedAt": "2026-11-06T00:19:50+08:00",
   "timezone": "Asia/Shanghai",
   "intervalMinutes": 10,
-  "active": {
-    "bilibili": {
-      "platform": "bilibili",
-      "title": "低精力宅宅",
-      "start": "2026-11-05T19:42:01+08:00",
-      "titleUpdatedAt": "2026-11-05T19:42:01+08:00",
-      "url": "https://live.bilibili.com/1750753391",
-      "roomId": "1750753391",
-      "cover": "https://i0.hdslb.com/bfs/live/new_room_cover/a905881096d671fb52e37dd05e8e3e43ab154c2b.jpg"
-    }
-  },
+  "active": {},
   "records": [
     {
       "id": "bilibili-2026-09-30T19:42:42+08:00",
@@ -483,6 +473,18 @@
       "start": "2026-11-04T22:33:47+08:00",
       "end": "2026-11-05T01:28:54+08:00",
       "durationSeconds": 10508,
+      "url": "https://live.bilibili.com/1750753391",
+      "roomId": "1750753391",
+      "cover": "https://i0.hdslb.com/bfs/live/new_room_cover/a905881096d671fb52e37dd05e8e3e43ab154c2b.jpg"
+    },
+    {
+      "id": "bilibili-2026-11-05T19:42:01+08:00",
+      "platform": "bilibili",
+      "title": "低精力宅宅",
+      "date": "2026-11-05",
+      "start": "2026-11-05T19:42:01+08:00",
+      "end": "2026-11-06T00:19:50+08:00",
+      "durationSeconds": 16670,
       "url": "https://live.bilibili.com/1750753391",
       "roomId": "1750753391",
       "cover": "https://i0.hdslb.com/bfs/live/new_room_cover/a905881096d671fb52e37dd05e8e3e43ab154c2b.jpg"
