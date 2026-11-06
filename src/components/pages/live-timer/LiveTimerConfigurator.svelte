@@ -39,6 +39,8 @@ let cnyToMinutes = $state(1);
 /** 盲盒：1 元开奖价值 = 多少分钟（0 = 关闭，退回按盒子实付价） */
 let blindBoxPerYuan = $state(1);
 let ignoreSilver = $state(true);
+/** 纯倒计时模式：礼物 / 大航海 / SC 一律不加时 */
+let ignoreGifts = $state(false);
 
 let rowSeq = 3;
 let giftRows = $state<GiftRow[]>([
@@ -79,6 +81,7 @@ interface ServerConfig {
 	cnyToMinutes: number;
 	blindBoxPerYuan?: number;
 	ignoreSilverGifts: boolean;
+	ignoreGifts?: boolean;
 	gifts: Record<string, number | { minutes: number }>;
 	guards: Record<string, number>;
 	caps: {
@@ -103,6 +106,8 @@ interface RuntimeInfo {
 	/** B 站登录态：false 表示 cookie 已失效，收不到礼物 */
 	authOk?: boolean | null;
 	authReason?: string;
+	/** 纯倒计时模式（礼物不加时） */
+	ignoreGifts?: boolean;
 }
 
 /** 服务器记录下来的最近礼物（含没加时的），用来配礼物表 */
@@ -287,6 +292,7 @@ function applyServerConfig(config: ServerConfig): void {
 	cnyToMinutes = Number(config.cnyToMinutes) || 0;
 	blindBoxPerYuan = Number(config.blindBoxPerYuan) || 0;
 	ignoreSilver = config.ignoreSilverGifts !== false;
+	ignoreGifts = config.ignoreGifts === true;
 	// B 站 guard_level：1 总督 / 2 提督 / 3 舰长（数字越小等级越高）
 	guardGovernor = Number(config.guards?.[1]) || 0;
 	guardAdmiral = Number(config.guards?.[2]) || 0;
@@ -474,6 +480,7 @@ async function saveToServer(): Promise<void> {
 				cnyToMinutes: Number(cnyToMinutes) || 0,
 				blindBoxPerYuan: Number(blindBoxPerYuan) || 0,
 				ignoreSilverGifts: ignoreSilver,
+				ignoreGifts,
 				gifts: giftMap,
 				guards: {
 					1: Number(guardGovernor) || 0,
@@ -564,9 +571,13 @@ async function control(action: string, minutes?: number): Promise<void> {
 						: Number(data.state.liveStatus),
 				authOk: data.state.authOk ?? null,
 				authReason: String(data.state.authReason ?? ""),
+				ignoreGifts: Boolean(data.state.ignoreGifts),
 			};
+			ignoreGifts = Boolean(data.state.ignoreGifts);
 		}
-		if (action === "start") ctlMsg = "已重新开局";
+		if (action === "toggleGifts") {
+			ctlMsg = ignoreGifts ? "已切到纯倒计时：礼物不再加时" : "已恢复礼物加时";
+		} else if (action === "start") ctlMsg = "已重新开局";
 		else if (action === "pause") ctlMsg = "已暂停";
 		else if (action === "resume") ctlMsg = "已继续";
 		else ctlMsg = `已${action === "add" ? "加" : "减"} ${minutes ?? 0} 分钟`;
@@ -737,6 +748,7 @@ const configJson = $derived(
 			cnyToMinutes: Number(cnyToMinutes) || 0,
 			blindBoxPerYuan: Number(blindBoxPerYuan) || 0,
 			ignoreSilverGifts: ignoreSilver,
+			ignoreGifts,
 			gifts: giftMap,
 			guards: {
 				1: Number(guardGovernor) || 0,
@@ -884,6 +896,21 @@ function downloadConfig(): void {
 					</button>
 					{#if ctlMsg}<span class="ctl-msg" class:bad={ctlBad}>{ctlMsg}</span>{/if}
 				</div>
+
+				<div class="mode-row">
+					<button
+						type="button"
+						class="mode-toggle"
+						class:on={ignoreGifts}
+						onclick={() => control("toggleGifts")}
+						disabled={ctlBusy}
+						title="开关后礼物 / 大航海 / SC 都不再加时，只走倒计时和手动控制"
+					>
+						<span class="mode-dot"></span>
+						{ignoreGifts ? "纯倒计时已开启" : "纯倒计时已关闭"}
+						<span class="mode-action">{ignoreGifts ? "点此恢复礼物加时" : "点此忽略礼物"}</span>
+					</button>
+				</div>
 			</section>
 
 			<section class="panel">
@@ -908,6 +935,10 @@ function downloadConfig(): void {
 					<label class="check">
 						<input type="checkbox" bind:checked={ignoreSilver} />
 						<span>免费礼物（银瓜子）不加时</span>
+					</label>
+					<label class="check">
+						<input type="checkbox" bind:checked={ignoreGifts} />
+						<span>纯倒计时（礼物一律不加时）</span>
 					</label>
 				</div>
 				<p class="hint">
@@ -1451,6 +1482,60 @@ function downloadConfig(): void {
 
 	.ctl-msg.bad {
 		color: #f43f5e;
+	}
+
+	/* 纯倒计时开关：一行宽度的大按钮，开着时整条高亮 */
+	.mode-row {
+		margin-top: 0.7rem;
+	}
+
+	.mode-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.55rem 0.7rem;
+		border-radius: 0.6rem;
+		border: 1px solid var(--line-divider);
+		background-color: var(--btn-regular-bg);
+		color: var(--deep-text);
+		font: inherit;
+		font-size: 0.82rem;
+		text-align: left;
+		transition:
+			background-color 0.2s ease,
+			border-color 0.2s ease,
+			color 0.2s ease;
+	}
+
+	.mode-toggle:hover {
+		background-color: var(--btn-regular-bg-hover);
+	}
+
+	.mode-toggle.on {
+		border-color: var(--primary);
+		color: var(--primary);
+		font-weight: 700;
+	}
+
+	.mode-dot {
+		width: 0.55rem;
+		height: 0.55rem;
+		border-radius: 50%;
+		background-color: var(--content-meta);
+		flex: none;
+	}
+
+	.mode-toggle.on .mode-dot {
+		background-color: var(--primary);
+		box-shadow: 0 0 8px var(--primary);
+	}
+
+	.mode-action {
+		margin-left: auto;
+		font-size: 0.72rem;
+		opacity: 0.7;
+		font-weight: 400;
 	}
 
 	.recent-gifts {

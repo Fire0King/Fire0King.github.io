@@ -181,6 +181,7 @@ function pickEditable(config) {
 		initialMinutes: config.initialMinutes,
 		cnyToMinutes: config.cnyToMinutes,
 		blindBoxPerYuan: numberFrom(config.blindBoxPerYuan),
+		ignoreGifts: config.ignoreGifts === true,
 		ignoreSilverGifts: config.ignoreSilverGifts,
 		gifts: { ...config.gifts },
 		guards: {
@@ -252,6 +253,7 @@ function normalizeEditable(raw) {
 				Math.max(0, Number(raw.blindBoxPerYuan) || 0),
 			),
 			ignoreSilverGifts: raw.ignoreSilverGifts !== false,
+			ignoreGifts: raw.ignoreGifts === true,
 			gifts,
 			guards: { 1: guardOf(1), 2: guardOf(2), 3: guardOf(3) },
 			caps: {
@@ -312,6 +314,11 @@ const DEFAULT_CONFIG = {
 	priceUnit: 1000,
 	/** 指定礼物的固定时长，键可以是 giftId 或礼物名 */
 	gifts: {},
+	/**
+	 * 纯倒计时模式：true 时礼物 / 大航海 / SC 一律不加不减，
+	 * 只剩手动控制（该开关可在配置页或叠层控制台上随时切）
+	 */
+	ignoreGifts: false,
 	/**
 	 * 大航海：guard_level → 分钟。
 	 * B 站的 guard_level 是「等级越高数字越小」：1 总督 / 2 提督 / 3 舰长。
@@ -507,6 +514,8 @@ class TimerState {
 			rules: giftRuleHints(this.config),
 			// 盲盒开关（>0 = 按开奖价值加时），叠层据此决定要不要显示「盲盒也加时长哦~」
 			blindBoxPerYuan: numberFrom(this.config.blindBoxPerYuan),
+			// 纯倒计时模式：叠层据此隐藏礼物价目提示
+			ignoreGifts: this.config.ignoreGifts === true,
 			...extra,
 		};
 	}
@@ -1459,6 +1468,16 @@ async function selfTest(config) {
 	});
 	check("真实房间号（>10 亿）能通过校验", okRoom.ok === true);
 	check(
+		"纯倒计时开关能读进来",
+		normalizeEditable({
+			roomId: 1,
+			ignoreGifts: true,
+			gifts: {},
+			guards: {},
+			caps: {},
+		}).value.ignoreGifts === true,
+	);
+	check(
 		"非法房间号被拒",
 		normalizeEditable({ roomId: 0, gifts: {}, guards: {}, caps: {} }).ok ===
 			false,
@@ -1715,6 +1734,16 @@ async function main() {
 			// 盲盒才有：开出来的奖品，纯粹用来展示
 			opened: data.opened ? String(data.opened) : undefined,
 		};
+		// 纯倒计时模式：礼物照收、照记录，就是不改时间
+		if (config.ignoreGifts) {
+			if (config.debug) {
+				log(
+					`🔍 纯倒计时模式，忽略礼物：${data.uname ?? "?"} ${data.giftName ?? "?"} ×${data.num}`,
+				);
+			}
+			noteGift({ ...rawInfo, ms: 0, applied: false, reason: "纯倒计时模式" });
+			return;
+		}
 		let ms =
 			data.msOverride === undefined
 				? giftToMs(config, data)
@@ -2283,6 +2312,7 @@ async function main() {
 		config.initialMinutes = value.initialMinutes;
 		config.cnyToMinutes = value.cnyToMinutes;
 		config.blindBoxPerYuan = value.blindBoxPerYuan;
+		config.ignoreGifts = value.ignoreGifts === true;
 		config.ignoreSilverGifts = value.ignoreSilverGifts;
 		config.gifts = value.gifts;
 		config.guards = value.guards;
@@ -2683,11 +2713,30 @@ async function main() {
 					});
 				} else if (kind === "guard") {
 					const level = Number(payload.guardLevel ?? payload.guard_level ?? 0);
+					const guardName = guardLevelName(level);
+					if (config.ignoreGifts) {
+						log(
+							`🔍 纯倒计时模式，忽略大航海：${payload.uname ?? "?"} ${guardName}`,
+						);
+						noteGift({
+							uid: Number(payload.uid) || 0,
+							uname: String(payload.uname ?? "观众"),
+							giftId: String(payload.giftId ?? ""),
+							giftName: String(payload.giftName ?? guardName),
+							num: Number(payload.num) || 1,
+							price: Number(payload.price) || 0,
+							coinType: "gold",
+							ms: 0,
+							applied: false,
+							reason: "纯倒计时模式",
+						});
+						jsonPlain(res, 200, { ok: true, ignored: true });
+						return;
+					}
 					const ms = guardToMs(config, {
 						guard_level: level,
 						num: Number(payload.num) || 1,
 					});
-					const guardName = guardLevelName(level);
 					if (ms > 0) {
 						const applied = grant(ms, {
 							kind: "guard",
@@ -2716,6 +2765,23 @@ async function main() {
 						);
 					}
 				} else if (kind === "superchat") {
+					if (config.ignoreGifts) {
+						log(`🔍 纯倒计时模式，忽略醒目留言：${payload.uname ?? "?"}`);
+						noteGift({
+							uid: Number(payload.uid) || 0,
+							uname: String(payload.uname ?? "观众"),
+							giftId: "",
+							giftName: `醒目留言 ¥${Number(payload.price) || 0}`,
+							num: 1,
+							price: Number(payload.price) || 0,
+							coinType: "gold",
+							ms: 0,
+							applied: false,
+							reason: "纯倒计时模式",
+						});
+						jsonPlain(res, 200, { ok: true, ignored: true });
+						return;
+					}
 					const ms = superChatToMs(config, {
 						price: Number(payload.price) || 0,
 					});
@@ -2782,6 +2848,17 @@ async function main() {
 					state.shift(-Math.abs(minutes) * 60_000);
 					log(`➖ 手动减时 ${minutes} 分钟`);
 					break;
+				case "toggleGifts": {
+					config.ignoreGifts =
+						payload.on === undefined ? !config.ignoreGifts : payload.on === true;
+					await persistConfig();
+					log(
+						config.ignoreGifts
+							? "🧸 切到纯倒计时模式：礼物 / 大航海 / SC 一律不加时"
+							: "🎁 恢复礼物加时"
+					);
+					break;
+				}
 				case "demoGift": {
 					const ms = numberFrom(payload.seconds) * 1000 || 60_000;
 					grant(ms, {

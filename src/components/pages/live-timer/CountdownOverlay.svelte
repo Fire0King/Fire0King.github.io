@@ -55,6 +55,8 @@ interface Snapshot {
 	rules?: GiftRule[];
 	/** >0 表示盲盒按开奖价值加时，叠层上会提示一句 */
 	blindBoxPerYuan?: number;
+	/** 纯倒计时模式：礼物不加时，价目提示也没意义了 */
+	ignoreGifts?: boolean;
 	connected?: boolean;
 	reason?: string;
 }
@@ -161,6 +163,9 @@ const ruleHints = $derived(
 const blindBoxOn = $derived(
 	mock ? true : Number(snap?.blindBoxPerYuan ?? 0) > 0,
 );
+
+/** 纯倒计时模式：礼物不加时，价目条就不显示了（免得说加时又不加） */
+const giftFree = $derived(mock ? false : snap?.ignoreGifts === true);
 
 interface HintItem {
 	key: string;
@@ -446,7 +451,7 @@ onMount(() => {
 			</ul>
 		{/if}
 
-		{#if showRules && hintItems.length > 0}
+		{#if showRules && !giftFree && hintItems.length > 0}
 			<div class="ticker" class:still={hintItems.length < 2}>
 				<div class="ticker-track">
 					{#each [0, 1] as copy (copy)}
