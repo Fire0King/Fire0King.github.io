@@ -715,15 +715,15 @@ onMount(() => {
 		flex: none;
 	}
 
-	/* 文字加白色描边：粉字压在亮画面上也能看清 */
+	/* 黑色细描边：只描上下左右四个方向，比之前的 1px 八向白边细一圈 */
 	.rule-name {
 		color: var(--accent);
 		text-shadow:
-			-1px -1px 0 rgba(255, 255, 255, 0.95),
-			1px -1px 0 rgba(255, 255, 255, 0.95),
-			-1px 1px 0 rgba(255, 255, 255, 0.95),
-			1px 1px 0 rgba(255, 255, 255, 0.95),
-			0 0 5px rgba(255, 255, 255, 0.55);
+			-0.7px 0 0 rgba(0, 0, 0, 0.9),
+			0.7px 0 0 rgba(0, 0, 0, 0.9),
+			0 -0.7px 0 rgba(0, 0, 0, 0.9),
+			0 0.7px 0 rgba(0, 0, 0, 0.9),
+			0 0 4px rgba(0, 0, 0, 0.5);
 	}
 
 	/* 加减同一色，跟进度条（--accent）保持一致 */
@@ -732,11 +732,11 @@ onMount(() => {
 		font-weight: 700;
 		font-variant-numeric: tabular-nums;
 		text-shadow:
-			-1px -1px 0 rgba(255, 255, 255, 0.95),
-			1px -1px 0 rgba(255, 255, 255, 0.95),
-			-1px 1px 0 rgba(255, 255, 255, 0.95),
-			1px 1px 0 rgba(255, 255, 255, 0.95),
-			0 0 5px rgba(255, 255, 255, 0.55);
+			-0.7px 0 0 rgba(0, 0, 0, 0.9),
+			0.7px 0 0 rgba(0, 0, 0, 0.9),
+			0 -0.7px 0 rgba(0, 0, 0, 0.9),
+			0 0.7px 0 rgba(0, 0, 0, 0.9),
+			0 0 4px rgba(0, 0, 0, 0.5);
 	}
 
 	.head {
