@@ -1,9 +1,19 @@
 {
   "version": 1,
-  "updatedAt": "2026-11-08T09:51:55+08:00",
+  "updatedAt": "2026-11-11T01:03:49+08:00",
   "timezone": "Asia/Shanghai",
   "intervalMinutes": 10,
-  "active": {},
+  "active": {
+    "bilibili": {
+      "platform": "bilibili",
+      "title": "偷偷播一会，今天不加班",
+      "start": "2026-11-11T01:03:49+08:00",
+      "titleUpdatedAt": "2026-11-11T01:03:49+08:00",
+      "url": "https://live.bilibili.com/1750753391",
+      "roomId": "1750753391",
+      "cover": "https://i0.hdslb.com/bfs/live/new_room_cover/a905881096d671fb52e37dd05e8e3e43ab154c2b.jpg"
+    }
+  },
   "records": [
     {
       "id": "bilibili-2026-09-30T19:42:42+08:00",
