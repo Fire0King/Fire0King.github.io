@@ -206,7 +206,19 @@ curl -s -X POST -H 'x-timer-token: 你的口令' -H 'content-type: application/j
   -d '{"action":"pause"}' http://127.0.0.1:8848/control
 ```
 
-`action` 支持：`start`（重新开局）、`pause`、`resume`、`add`（配 `minutes`）、`sub`、`demoGift`（配 `seconds`，本地调样式用）。
+`action` 支持：`start`（重新开局）、`pause`、`resume`、`add`（配 `minutes`）、`sub`、`demoGift`（配 `seconds`，本地调样式用）、`toggleGifts`（切换纯倒计时模式）。
+
+### 礼物统计页
+
+配置页右上角「礼物统计」按钮 → `https://你的域名/live-timer/stats/`（同样要网页口令）。
+
+- 服务端把每条礼物事件追加到 `giftLogFile`（默认 `/var/lib/live-timer/gifts.jsonl`，一行一条 JSON），重启后会重新读入内存（上限 20 万条）
+- 页面上可按 **今天 / 昨天 / 近 7 天 / 近 30 天 / 本月 / 本年 / 全部 / 自定义日期**，再叠加 **礼物**、**用户** 筛选
+- 视角可切 **按天 / 按月 / 按年 / 按礼物 / 按用户**；按用户视角点一行能展开他送过哪些礼物
+- 统计接口 `GET /stats?from=YYYY-MM-DD&to=YYYY-MM-DD&gift=礼物名&uid=用户ID`，需要网页登录态（`Authorization: Bearer <token>`），本机直连（不带 `X-Real-IP` 代理头）才免口令
+- 「加时」统计的是**实际生效**的时长（会被上限、单人限速截断）；纯倒计时模式下收到的礼物记为 0 分钟，但件数照样统计
+
+> 注意：流水是从启用这版程序之后才开始记录的，之前的礼物没有落盘，补不回来。
 
 ---
 

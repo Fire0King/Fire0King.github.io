@@ -1,0 +1,37 @@
+---
+/**
+ * 直播礼物统计（/live-timer/stats/）
+ *
+ * 自己用的工具页：看每天谁送了什么、送了多少，可按年/月/天、礼物、用户筛选。
+ * 数据来自服务端的礼物流水，页面本身是静态的，接口带口令校验。
+ */
+import GiftStats from "@components/pages/live-timer/GiftStats.svelte";
+import { Icon } from "astro-icon/components";
+import MainGridLayout from "@/layouts/MainGridLayout.astro";
+
+const title = "礼物统计";
+const description =
+	"每天收到哪些礼物、谁送的、送了多少，支持按时间/礼物/用户筛选";
+---
+
+<MainGridLayout title={title} description={description}>
+	<div class="card-base px-6 py-6 sm:px-9">
+		<div class="mb-5">
+			<div class="flex items-center gap-3 mb-2">
+				<div
+					class="h-8 w-8 rounded-lg bg-(--primary) flex items-center justify-center text-white dark:text-black/70"
+				>
+					<Icon name="material-symbols:bar-chart" class="text-[1.5rem]"></Icon>
+				</div>
+				<h1 class="text-3xl font-bold text-neutral-900 dark:text-neutral-100">
+					{title}
+				</h1>
+			</div>
+			<p class="text-base text-neutral-600 dark:text-neutral-400 leading-relaxed">
+				{description}
+			</p>
+		</div>
+
+		<GiftStats client:load />
+	</div>
+</MainGridLayout>

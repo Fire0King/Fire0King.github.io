@@ -269,6 +269,10 @@ export default defineConfig({
 				if (pathname.endsWith("/live-timer/")) {
 					return false;
 				}
+				// 礼物统计页同样是自己用的工具页
+				if (pathname.startsWith("/live-timer/")) {
+					return false;
+				}
 				if (pathname === "/bangumi/" && !siteConfig.pages.bangumi) {
 					return false;
 				}

@@ -26,7 +26,14 @@ import {
 	scryptSync,
 	timingSafeEqual,
 } from "node:crypto";
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+	appendFile,
+	chmod,
+	mkdir,
+	readFile,
+	rename,
+	writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import {
@@ -286,6 +293,8 @@ const DEFAULT_CONFIG = {
 	outFile: "/var/www/site/api/live-timer.json",
 	/** 进程重启后恢复计时用的状态文件 */
 	stateFile: "/var/lib/live-timer/state.json",
+	/** 礼物流水（一行一条 JSON），统计页面靠它出报表；文件不存在会自动创建 */
+	giftLogFile: "/var/lib/live-timer/gifts.jsonl",
 	/** 可选：SESSDATA 等 cookie，用于拿到部分只在登录态下推送的礼物事件 */
 	cookie: "",
 	/** 调试模式：把收到的每条礼物（含被过滤的原因）都打进日志 */
@@ -1680,7 +1689,64 @@ async function main() {
 	function noteGift(entry) {
 		recentGifts.unshift({ at: Date.now(), ...entry });
 		recentGifts.length = Math.min(recentGifts.length, 20);
+		recordGiftEvent(entry);
 	}
+
+	/* ---------- 礼物流水：统计页面用 ---------- */
+
+	const giftLogPath = resolve(config.giftLogFile);
+	/** 内存里最多留这么多条（一年几百场直播也到不了） */
+	const GIFT_LOG_MAX = 200_000;
+	/** 按时间正序的内存流水 */
+	let giftLog = [];
+	let giftLogAppend = Promise.resolve();
+
+	async function loadGiftLog() {
+		try {
+			const text = await readFile(giftLogPath, "utf8");
+			const rows = [];
+			for (const line of text.split("\n")) {
+				if (!line.trim()) continue;
+				try {
+					const row = JSON.parse(line);
+					if (typeof row?.t === "number") rows.push(row);
+				} catch {
+					// 坏行直接跳过，不要因为它整个统计挂掉
+				}
+			}
+			giftLog = rows.length > GIFT_LOG_MAX ? rows.slice(-GIFT_LOG_MAX) : rows;
+			log(`📊 礼物流水载入 ${giftLog.length} 条（${giftLogPath}）`);
+		} catch {
+			giftLog = [];
+			log(`📊 礼物流水还没建立，收到礼物后写入 ${giftLogPath}`);
+		}
+	}
+
+	function recordGiftEvent(entry) {
+		const row = {
+			t: Date.now(),
+			uid: Number(entry.uid) || 0,
+			uname: String(entry.uname ?? "观众"),
+			giftId: String(entry.giftId ?? ""),
+			giftName: String(entry.giftName ?? "礼物"),
+			num: Number(entry.num) || 1,
+			price: Number(entry.price) || 0,
+			coinType: String(entry.coinType ?? ""),
+			ms: Number(entry.ms) || 0,
+			kind: String(entry.kind ?? "gift"),
+			reason: String(entry.reason ?? ""),
+			...(entry.opened ? { opened: String(entry.opened) } : {}),
+		};
+		giftLog.push(row);
+		if (giftLog.length > GIFT_LOG_MAX) {
+			giftLog.splice(0, giftLog.length - GIFT_LOG_MAX);
+		}
+		giftLogAppend = giftLogAppend
+			.then(() => appendFile(giftLogPath, `${JSON.stringify(row)}\n`, "utf8"))
+			.catch((err) => log(`⚠️ 礼物流水写盘失败：${err.message}`));
+	}
+
+	await loadGiftLog();
 
 	const state = demo
 		? new TimerState(config)
@@ -1891,13 +1957,20 @@ async function main() {
 		res.end(body);
 	};
 
+	/**
+	 * 是否真的是本机直连。
+	 * nginx 反代过来的请求 remoteAddress 也是 127.0.0.1，但它会带 X-Real-IP，
+	 * 所以「有代理头」一律不算本机，避免公网借反代拿到本机权限。
+	 */
+	function isTrueLoopback(req) {
+		const addr = String(req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+		if (addr !== "127.0.0.1" && addr !== "::1") return false;
+		if (req.headers["x-real-ip"] || req.headers["x-forwarded-for"]) return false;
+		return true;
+	}
+
 	function authorized(req) {
-		if (!config.adminToken) {
-			const addr = req.socket.remoteAddress ?? "";
-			return (
-				addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1"
-			);
-		}
+		if (!config.adminToken) return isTrueLoopback(req);
 		return req.headers["x-timer-token"] === config.adminToken;
 	}
 
@@ -2471,6 +2544,192 @@ async function main() {
 			return;
 		}
 
+		/* ---------- 礼物统计（要口令；本机调用不受限，方便 curl 排查） ---------- */
+
+		if (url.pathname === "/stats") {
+			const statsAuth = authorized(req) ? { ok: true } : await adminAuth(req);
+			if (!statsAuth.ok) {
+				jsonPlain(res, statsAuth.code ?? 401, {
+					ok: false,
+					error: statsAuth.error ?? "请先输入口令",
+				});
+				return;
+			}
+			const q = url.searchParams;
+			const toDayStart = (raw) => {
+				const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(raw ?? ""));
+				if (!m) return null;
+				const d = new Date(
+					Number(m[1]),
+					Number(m[2]) - 1,
+					Number(m[3]),
+					0,
+					0,
+					0,
+					0,
+				);
+				return Number.isFinite(d.getTime()) ? d.getTime() : null;
+			};
+			const today = new Date();
+			const todayStart = new Date(
+				today.getFullYear(),
+				today.getMonth(),
+				today.getDate(),
+			).getTime();
+			const from = toDayStart(q.get("from")) ?? todayStart;
+			const to = toDayStart(q.get("to")) ?? from;
+			const dayMs = 86_400_000;
+			const fromTs = Math.min(from, to);
+			const toTs = Math.max(from, to) + dayMs - 1;
+			const giftFilter = String(q.get("gift") ?? "").trim();
+			const userFilter = String(q.get("user") ?? "").trim();
+			const uidFilter = Number(q.get("uid")) || 0;
+
+			const inRange = giftLog.filter(
+				(row) => row.t >= fromTs && row.t <= toTs,
+			);
+
+			// 筛选项（礼物下拉、用户下拉）只看时间范围，不受别的筛选影响
+			const facetGifts = new Map();
+			const facetUsers = new Map();
+			for (const row of inRange) {
+				facetGifts.set(
+					row.giftName,
+					(facetGifts.get(row.giftName) ?? 0) + 1,
+				);
+				const key = row.uid || `name:${row.uname}`;
+				const prev = facetUsers.get(key) ?? {
+					uid: row.uid,
+					uname: row.uname,
+					count: 0,
+				};
+				prev.uname = row.uname || prev.uname;
+				prev.count += 1;
+				facetUsers.set(key, prev);
+			}
+
+			const rows = inRange.filter((row) => {
+				if (giftFilter && row.giftName !== giftFilter) return false;
+				if (uidFilter && row.uid !== uidFilter) return false;
+				if (
+					userFilter &&
+					!String(row.uname ?? "").includes(userFilter) &&
+					String(row.uid) !== userFilter
+				) {
+					return false;
+				}
+				return true;
+			});
+
+			const pad = (n) => String(n).padStart(2, "0");
+			const dayOf = (t) => {
+				const d = new Date(t);
+				return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+			};
+			const monthOf = (t) => dayOf(t).slice(0, 7);
+			const yearOf = (t) => dayOf(t).slice(0, 4);
+
+			const bucket = () => ({
+				events: 0,
+				count: 0,
+				ms: 0,
+				cny: 0,
+			});
+			const add = (target, row, cny) => {
+				target.events += 1;
+				target.count += row.num;
+				target.ms += row.ms;
+				target.cny += cny;
+			};
+			const totals = bucket();
+			const byDay = new Map();
+			const byMonth = new Map();
+			const byYear = new Map();
+			const byGift = new Map();
+			const byUser = new Map();
+			const usersSeen = new Set();
+
+			for (const row of rows) {
+				const cny =
+					row.coinType === "gold"
+						? (Number(row.price) || 0) / (config.priceUnit || 1000) * row.num
+						: 0;
+				add(totals, row, cny);
+				usersSeen.add(row.uid || `name:${row.uname}`);
+				const bump = (map, key, extra) => {
+					const slot = map.get(key) ?? { ...bucket(), ...extra };
+					add(slot, row, cny);
+					map.set(key, slot);
+				};
+				bump(byDay, dayOf(row.t), { key: dayOf(row.t) });
+				bump(byMonth, monthOf(row.t), { key: monthOf(row.t) });
+				bump(byYear, yearOf(row.t), { key: yearOf(row.t) });
+				bump(byGift, row.giftName, {
+					key: row.giftName,
+					giftName: row.giftName,
+					giftId: row.giftId,
+				});
+				const userKey = row.uid || `name:${row.uname}`;
+				const uSlot = byUser.get(userKey) ?? {
+					...bucket(),
+					key: String(userKey),
+					uid: row.uid,
+					uname: row.uname,
+					gifts: new Map(),
+				};
+				add(uSlot, row, cny);
+				const g = uSlot.gifts.get(row.giftName) ?? {
+					name: row.giftName,
+					count: 0,
+					ms: 0,
+					cny: 0,
+				};
+				g.count += row.num;
+				g.ms += row.ms;
+				g.cny += cny;
+				uSlot.gifts.set(row.giftName, g);
+				uSlot.uname = row.uname || uSlot.uname;
+				byUser.set(userKey, uSlot);
+			}
+
+			const sorted = (map, limit = 300) =>
+				[...map.values()]
+					.sort((a, b) => b.count - a.count || b.ms - a.ms)
+					.slice(0, limit)
+					.map((item) => ({
+						...item,
+						...(item.gifts
+							? {
+									gifts: [...item.gifts.values()]
+										.sort((a, b) => b.count - a.count)
+										.slice(0, 6),
+								}
+							: {}),
+					}));
+
+			jsonPlain(res, 200, {
+				ok: true,
+				range: { from: dayOf(fromTs), to: dayOf(toTs), days: Math.round((toTs - fromTs + 1) / dayMs) },
+				totals: { ...totals, users: usersSeen.size, gifts: byGift.size },
+				byDay: sorted(byDay, 400),
+				byMonth: sorted(byMonth, 120),
+				byYear: sorted(byYear, 20),
+				byGift: sorted(byGift, 200),
+				byUser: sorted(byUser, 200),
+				facets: {
+					gifts: [...facetGifts.entries()]
+						.sort((a, b) => b[1] - a[1])
+						.slice(0, 200)
+						.map(([name, count]) => ({ name, count })),
+					users: [...facetUsers.values()]
+						.sort((a, b) => b.count - a.count)
+						.slice(0, 200),
+				},
+				totalEvents: giftLog.length,
+			});
+			return;
+		}
+
 		if (req.method === "POST" && url.pathname === "/admin/qr/generate") {
 			const auth = await adminAuth(req);
 			if (!auth.ok) {
@@ -2609,11 +2868,7 @@ async function main() {
 
 		// 外部监听器（bili-live-listener）把抓到的事件推到这里；只允许本机调用
 		if (req.method === "POST" && url.pathname === "/ingest") {
-			const addr = String(req.socket.remoteAddress ?? "").replace(
-				/^::ffff:/,
-				"",
-			);
-			if (addr !== "127.0.0.1" && addr !== "::1") {
+			if (!isTrueLoopback(req)) {
 				jsonPlain(res, 403, { ok: false, error: "只允许本机" });
 				return;
 			}
@@ -2726,6 +2981,7 @@ async function main() {
 							num: Number(payload.num) || 1,
 							price: Number(payload.price) || 0,
 							coinType: "gold",
+							kind: "guard",
 							ms: 0,
 							applied: false,
 							reason: "纯倒计时模式",
@@ -2753,6 +3009,7 @@ async function main() {
 							num: Number(payload.num) || 1,
 							price: Number(payload.price) || 0,
 							coinType: "gold",
+							kind: "guard",
 							ms: applied,
 							applied: applied > 0,
 							reason: `大航海（${guardName}）`,
@@ -2765,16 +3022,18 @@ async function main() {
 						);
 					}
 				} else if (kind === "superchat") {
+					const scLabel = `醒目留言 ¥${Number(payload.price) || 0}`;
 					if (config.ignoreGifts) {
 						log(`🔍 纯倒计时模式，忽略醒目留言：${payload.uname ?? "?"}`);
 						noteGift({
 							uid: Number(payload.uid) || 0,
 							uname: String(payload.uname ?? "观众"),
 							giftId: "",
-							giftName: `醒目留言 ¥${Number(payload.price) || 0}`,
+							giftName: scLabel,
 							num: 1,
 							price: Number(payload.price) || 0,
 							coinType: "gold",
+							kind: "superchat",
 							ms: 0,
 							applied: false,
 							reason: "纯倒计时模式",
@@ -2786,11 +3045,24 @@ async function main() {
 						price: Number(payload.price) || 0,
 					});
 					if (ms > 0) {
-						grant(ms, {
+						const applied = grant(ms, {
 							kind: "superchat",
 							user: String(payload.uname ?? "观众"),
 							uid: Number(payload.uid) || 0,
-							label: `醒目留言 ¥${Number(payload.price) || 0}`,
+							label: scLabel,
+						});
+						noteGift({
+							uid: Number(payload.uid) || 0,
+							uname: String(payload.uname ?? "观众"),
+							giftId: "",
+							giftName: scLabel,
+							num: 1,
+							price: Number(payload.price) || 0,
+							coinType: "gold",
+							kind: "superchat",
+							ms: applied,
+							applied: applied > 0,
+							reason: "醒目留言",
 						});
 					}
 				}

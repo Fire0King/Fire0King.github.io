@@ -845,6 +845,9 @@ function downloadConfig(): void {
 		<div class="savebar">
 			<span class="pill" class:off={!runtime?.connected}>{runtimeLabel}</span>
 			<div class="savebar-actions">
+				<a class="ghost stats-link" href={`${BASE}live-timer/stats/`}>
+					礼物统计
+				</a>
 				<button type="button" class="ghost" onclick={reloadFromServer} disabled={saveBusy}>
 					重新加载
 				</button>
@@ -1317,6 +1320,26 @@ function downloadConfig(): void {
 		display: flex;
 		gap: 0.5rem;
 		margin-left: auto;
+	}
+
+	.stats-link {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.4rem 0.8rem;
+		border-radius: 0.55rem;
+		border: 1px solid var(--primary);
+		color: var(--primary);
+		font-size: 0.82rem;
+		font-weight: 600;
+		text-decoration: none;
+		transition:
+			background-color 0.15s ease,
+			color 0.15s ease;
+	}
+
+	.stats-link:hover {
+		background-color: var(--primary);
+		color: #fff;
 	}
 
 	.ok {
