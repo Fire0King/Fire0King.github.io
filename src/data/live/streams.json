@@ -1,19 +1,9 @@
 {
   "version": 1,
-  "updatedAt": "2026-11-20T22:10:18+08:00",
+  "updatedAt": "2026-11-21T00:54:52+08:00",
   "timezone": "Asia/Shanghai",
   "intervalMinutes": 10,
-  "active": {
-    "bilibili": {
-      "platform": "bilibili",
-      "title": "底特律",
-      "start": "2026-11-20T22:10:18+08:00",
-      "titleUpdatedAt": "2026-11-20T22:10:18+08:00",
-      "url": "https://live.bilibili.com/1750753391",
-      "roomId": "1750753391",
-      "cover": "https://i0.hdslb.com/bfs/live/new_room_cover/a905881096d671fb52e37dd05e8e3e43ab154c2b.jpg"
-    }
-  },
+  "active": {},
   "records": [
     {
       "id": "bilibili-2026-09-30T19:42:42+08:00",
@@ -601,6 +591,18 @@
       "start": "2026-11-18T20:37:58+08:00",
       "end": "2026-11-19T00:35:02+08:00",
       "durationSeconds": 14224,
+      "url": "https://live.bilibili.com/1750753391",
+      "roomId": "1750753391",
+      "cover": "https://i0.hdslb.com/bfs/live/new_room_cover/a905881096d671fb52e37dd05e8e3e43ab154c2b.jpg"
+    },
+    {
+      "id": "bilibili-2026-11-20T22:10:18+08:00",
+      "platform": "bilibili",
+      "title": "底特律",
+      "date": "2026-11-20",
+      "start": "2026-11-20T22:10:18+08:00",
+      "end": "2026-11-21T00:54:52+08:00",
+      "durationSeconds": 9874,
       "url": "https://live.bilibili.com/1750753391",
       "roomId": "1750753391",
       "cover": "https://i0.hdslb.com/bfs/live/new_room_cover/a905881096d671fb52e37dd05e8e3e43ab154c2b.jpg"
